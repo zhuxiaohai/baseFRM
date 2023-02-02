@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 import scipy as sp
 from copy import deepcopy
+import random
 
 from sklearn.base import clone
 from sklearn.utils.validation import check_is_fitted
@@ -15,6 +16,9 @@ from hyperopt import fmin, tpe
 from .utils import ParameterSampler, _check_param, _check_boosting
 from .utils import _set_categorical_indexes, _get_categorical_support
 from .utils import _feature_importances, _shap_importances
+
+from shaphypetune.gbdt_utils.xgboost_metrics import xgb_ks_score_negative, xgb_r2_score_negative
+from shaphypetune.gbdt_utils.lightgbm_metrics import eval_ks, eval_r2
 
 
 class _BoostSearch(BaseEstimator):
@@ -1047,3 +1051,267 @@ class _RFA(_BoostSelector):
         check_is_fitted(self)
 
         return self._transform(X, inverse=False)
+
+
+class _FastRFE(_RFE, _BoostSearch):
+    """features selection with RFE and hyperparams-Exploration&Explitation
+    on a given validation set for LGBModel or XGBModel.
+
+    Pass a LGBModel or XGBModel to compute features selection with RFE.
+    The gradient boosting instance with the best features is selected.
+    When a eval_set is provided, the best gradient boosting and the best
+    features are obtained evaluating the score with eval_metric.
+    Otherwise, the best combination is obtained looking only at feature
+    importance.
+
+    To operate random search pass distributions in the param_grid with rvs
+    method for sampling (such as those from scipy.stats.distributions).
+    The specification of n_iter or sampling_seed is effective only with random searches.
+    The best parameter combination is the one which obtain the better score
+    (as returned by eval_metric) on the provided eval_set.
+
+    If all parameters are presented as a list/floats/integers, grid-search
+    is performed. If at least one parameter is given as a distribution (such as
+    those from scipy.stats.distributions), random-search is performed computing
+    sampling with replacement.
+    It is highly recommended to use continuous distributions for continuous
+    parameters.
+
+    Parameters
+    ----------
+    estimator : object
+        A supervised learning estimator of LGBModel or XGBModel type.
+
+    min_features_to_select : int, default=None
+        The minimum number of features to be selected. This number of features
+        will always be scored, even if the difference between the original
+        feature count and `min_features_to_select` isn't divisible by
+        `step`. The default value for min_features_to_select is set to 1 when a
+        eval_set is provided, otherwise it always corresponds to n_features // 2.
+
+    importance_type : str, default='feature_importances'
+         Which importance measure to use. It can be 'feature_importances'
+         (the default feature importance of the gradient boosting estimator)
+         or 'shap_importances'.
+
+    train_importance : bool, default=True
+        Effective only when importance_type='shap_importances'.
+        Where to compute the shap feature importance: on train (True)
+        or on eval_set (False).
+
+    param_grid : dict, default=None
+        Dictionary with parameters names (`str`) as keys and distributions
+        or lists of parameters to try.
+        None means no hyperparameters search.
+
+    greater_is_better : bool, default=False
+        Effective only when hyperparameters searching.
+        Whether the quantity to monitor is a score function,
+        meaning high is good, or a loss function, meaning low is good.
+
+    n_iter : int, default=None
+        Effective only for random serach.
+        Number of parameter settings that are sampled.
+        n_iter trades off runtime vs quality of the solution.
+
+    n_warmup_iter : int or float, default=1
+        number of exploration iters before exploitation
+
+    sampling_seed : int, default=None
+        Effective only for random serach.
+
+    verbose : int, default=1
+        Verbosity mode. <=0 silent all; ==1 print trial logs (when
+        hyperparameters searching); >1 print feature selection logs plus
+        trial logs (when hyperparameters searching).
+
+    Attributes
+    ----------
+    estimator_ : estimator
+        The fitted estimator with the select features and the optimal
+        parameter combination (when hyperparameters searching).
+
+    n_features_ : int
+        The number of selected features (from the best param config
+        when hyperparameters searching).
+
+    ranking_ : ndarray of shape (n_features,)
+        The feature ranking, such that ``ranking_[i]`` corresponds to the
+        ranking position of the i-th feature (from the best param config
+        when hyperparameters searching). Selected  features are assigned
+        rank 1.
+
+    support_ : ndarray of shape (n_features,)
+        The mask of selected features (from the best param config
+        when hyperparameters searching).
+
+    score_history_ : list
+        Available only when a eval_set is provided.
+        Scores obtained reducing the features.
+
+    best_params_ : dict
+        Parameter setting that gave the best results on the eval_set.
+
+    best_score_ : float
+        The best score achieved by all the possible combination created.
+
+    boost_type_ : str
+        The type of the boosting estimator (LGB or XGB).
+    """
+
+    def __init__(self,
+                 estimator, *,
+                 min_features_to_select=None,
+                 param_grid=None,
+                 greater_is_better=False,
+                 importance_type='feature_importances',
+                 train_importance=True,
+                 n_iter=None,
+                 n_warmup_iter=None,
+                 sampling_seed=None,
+                 verbose=1):
+
+        self.estimator = estimator
+        self.min_features_to_select = min_features_to_select
+        self.param_grid = param_grid
+        self.greater_is_better = greater_is_better
+        self.importance_type = importance_type
+        self.train_importance = train_importance
+        self.n_iter = n_iter
+        self.n_warmup_iter = n_warmup_iter
+        self.sampling_seed = sampling_seed
+        self.verbose = verbose
+
+    def _check_metric_fn(self, fit_params):
+        self.greater_is_better = True
+        if self.boost_type_ == 'XGB':
+            if hasattr(self.estimator, 'predict_proba'):
+                metric_fn = xgb_ks_score_negative
+            else:
+                metric_fn = xgb_r2_score_negative
+        else:
+            if hasattr(self.estimator, 'predict_proba'):
+                metric_fn = eval_ks
+            else:
+                metric_fn = eval_r2
+
+        if "eval_metric" in fit_params.keys():
+            if not callable(fit_params['eval_metric']):
+                fit_params['eval_metric'] = metric_fn
+        else:
+            fit_params['eval_metric'] = metric_fn
+
+        return fit_params
+
+    def fit(self, X, y, **fit_params):
+        """USE RFE and E&E algorithms to automatically select the designated
+        number of features."""
+
+        self.boost_type_ = _check_boosting(self.estimator)
+
+        importances = ['feature_importances', 'shap_importances']
+        if self.importance_type not in importances:
+            raise ValueError(
+                "importance_type must be one of {}. Get '{}'".format(
+                    importances, self.importance_type))
+
+        # scoring controls the calculation of self.score_history_
+        # scoring is used automatically when 'eval_set' is in fit_params
+        scoring = 'eval_set' in fit_params
+        assert scoring is True
+        if self.importance_type == 'shap_importances':
+            if not self.train_importance and not scoring:
+                raise ValueError(
+                    "When train_importance is set to False, using "
+                    "shap_importances, pass at least a eval_set.")
+            eval_importance = not self.train_importance and scoring
+
+        shapes = np.shape(X)
+        if len(shapes) != 2:
+            raise ValueError("X must be 2D.")
+        n_features = shapes[1]
+
+        # create mask for user-defined categorical features
+        self._cat_support = _get_categorical_support(n_features, fit_params)
+
+        if self.min_features_to_select is None:
+            if scoring:
+                min_features_to_select = 1
+            else:
+                min_features_to_select = n_features // 2
+        else:
+            min_features_to_select = self.min_features_to_select
+
+        self.ranking_ = np.ones(n_features, dtype=np.int)
+        self.tracking_ = [[] for _ in range(n_features)]
+        if scoring:
+            fit_params = self._check_metric_fn(fit_params)
+            self.score_history_ = []
+            eval_score = np.max if self.greater_is_better else np.min
+            best_score = -np.inf if self.greater_is_better else np.inf
+
+        random.seed(self.sampling_seed)
+        np.random.seed(self.sampling_seed)
+        self._validate_param_grid(fit_params)
+        assert self._tuning_type != 'hyperopt'
+        n_iter = self.n_iter if self._tuning_type != 'grid' else len(self._param_combi)
+        counter = 0
+        while counter < n_iter:
+            # remaining features
+            if counter <= (self.n_warmup_iter - 1):
+                self.support_ = np.zeros(n_features, dtype=np.bool)
+                self.support_[random.sample(np.arange(n_features).tolist(), self.min_features_to_select)] = True
+            else:
+                avg_tracking_imp = np.array(list(map(lambda x: sum(x) / len(x) if len(x) > 0 else 0.5, self.tracking_)))
+                self.ranking_ = np.argsort(np.random.rand(n_features) * avg_tracking_imp)[::-1]
+                self.support_ = np.zeros(n_features, dtype=np.bool)
+                self.support_[np.arange(n_features)[self.ranking_][:min_features_to_select]] = True
+
+            _fit_params, estimator = self._check_fit_params(fit_params)
+            params = self._param_combi[counter]
+
+            if self.verbose > 1:
+                print("Fitting estimator with {} features".format(
+                    self.support_.sum()))
+                print("estimator params:", params)
+            estimator.set_params(**params)
+            estimator.fit(self.transform(X), y, **_fit_params)
+
+            # get coefs
+            if self.importance_type == 'feature_importances':
+                coefs = _feature_importances(estimator)
+            else:
+                if eval_importance:
+                    coefs = _shap_importances(
+                        estimator, _fit_params['eval_set'][-1][0])
+                else:
+                    coefs = _shap_importances(
+                        estimator, self.transform(X))
+                coefs = coefs / np.sum(coefs)
+
+            if scoring:
+                score = self._step_score(estimator)
+                score *= self._score_sign
+                self.score_history_.append(score)
+                if best_score != eval_score([score, best_score]):
+                    best_score = score
+                    best_support = self.support_.copy()
+                    best_ranking = self.ranking_.copy()
+                    best_estimator = estimator
+                    best_params = params
+
+            for i, feature in enumerate(np.arange(n_features)[self.support_]):
+                self.tracking_[feature].append((coefs[i] + 0.001) * max(score, 0.))
+
+            counter += 1
+
+        # set final attributes
+        if scoring:
+            self.support_ = best_support
+            self.ranking_ = best_ranking
+            self.estimator_ = best_estimator
+            self.best_score_ = best_score
+            self.best_params_ = best_params
+        self.n_features_ = self.support_.sum()
+
+        return self

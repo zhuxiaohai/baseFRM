@@ -35,7 +35,7 @@ def _shap_importances(model, X):
 
     explainer = TreeExplainer(
         model, feature_perturbation="tree_path_dependent")
-    coefs = explainer.shap_values(X)
+    coefs = explainer.shap_values(X, check_additivity=False)
 
     if isinstance(coefs, list):
         coefs = list(map(lambda x: np.abs(x).mean(0), coefs))
