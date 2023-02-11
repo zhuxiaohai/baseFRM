@@ -922,10 +922,13 @@ class _RFA(_BoostSelector):
         if step <= 0:
             raise ValueError("Step must be >0.")
 
+        self.fixed_features = fit_params.pop('fixed_features', [])
         self.support_ = np.zeros(n_features, dtype=np.bool)
         self._support = np.ones(n_features, dtype=np.bool)
         self.ranking_ = np.ones(n_features, dtype=np.int)
         self._ranking = np.ones(n_features, dtype=np.int)
+        self.support_[self.fixed_features] = True
+        self._support[self.fixed_features] = False
         if scoring:
             self.score_history_ = []
             eval_score = np.max if self.greater_is_better else np.min
@@ -995,7 +998,7 @@ class _RFA(_BoostSelector):
                 self.ranking_ = best_ranking
                 self.estimator_ = best_estimator
 
-            if len(set(self.score_history_)) == 1:
+            if (len(set(self.score_history_)) == 1) and (len(self.fixed_features) == 0):
                 self.support_ = np.ones(n_features, dtype=np.bool)
                 self.ranking_ = np.ones(n_features, dtype=np.int)
                 self.estimator_ = all_features_estimator
