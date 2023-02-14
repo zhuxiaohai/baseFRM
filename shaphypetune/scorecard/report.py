@@ -835,15 +835,33 @@ def check_score_cut(score_cut):
     return score_cut
 
 
-def set_column_width(df, worksheet):
+def set_column_width(df, worksheet, offset=0):
     for idx, col in enumerate(df):
         series = df[col]
         max_len = max((
             series.astype(str).map(len).max(),  # len of largest item
             len(str(series.name))  # len of column name/header
         )) + 1  # adding a little extra space
-        worksheet.set_column(idx, idx, max_len)  # set column width
+        worksheet.set_column(idx+offset, idx+offset, max_len)  # set column width
     return worksheet
+
+
+range_color = ['#16934d', '#57b55f', '#93d067', '#c7e77f', '#edf7a7',
+               '#fef1a6', '#fdce7b', '#fa9a57', '#ee613d', '#d22b26']
+def color_pct(val):
+    num_range_color = len(range_color)
+    color = range_color[val % num_range_color]
+    return 'background-color: %s' % color
+
+
+def format_null(df):
+    df = (df.style.applymap(color_pct)
+          .format("{:.2%}").set_properties(**{'font-family': 'Calibri',
+                                              'font-size': '12px', 'max-width': '10px',
+                                              'border-color': 'grey', 'border-style': 'solid',
+                                              'border-width': '0.05px', 'border-collaps': 'collaps'}))
+
+    return df
 
 
 def write_report(df, models_cut_dict, vars_cut_dict, y, dt_cut, digit, mode,
@@ -891,12 +909,16 @@ def write_report(df, models_cut_dict, vars_cut_dict, y, dt_cut, digit, mode,
                                                         )
     var_stat = var_stat.reset_index()
     var_bin_stat = var_bin_stat.reset_index()
-    var_stat.to_excel(writer, sheet_name='var_stat', startcol=0, index=False)
+    format_null(var_stat['variable'].rank(method='dense').astype(int).rename('num').to_frame()).to_excel(
+        writer, sheet_name='var_stat', startcol=0, index=False)
+    var_stat.to_excel(writer, sheet_name='var_stat', startcol=1, index=False)
     sheet = writer.sheets['var_stat']
-    set_column_width(var_stat, sheet)
-    var_bin_stat.to_excel(writer, sheet_name='var_bin_stat', startcol=0, index=False)
+    set_column_width(var_stat, sheet, 1)
+    format_null(var_bin_stat['variable'].rank(method='dense').astype(int).rename('num').to_frame()).to_excel(
+        writer, sheet_name='var_bin_stat', startcol=0, index=False)
+    var_bin_stat.to_excel(writer, sheet_name='var_bin_stat', startcol=1, index=False)
     sheet = writer.sheets['var_bin_stat']
-    set_column_width(var_bin_stat, sheet)
+    set_column_width(var_bin_stat, sheet, 1)
     for label in models_cut_dict.keys():
         if not os.path.exists(os.path.join(output_path, label)):
             os.makedirs(os.path.join(output_path, label))
@@ -917,12 +939,16 @@ def write_report(df, models_cut_dict, vars_cut_dict, y, dt_cut, digit, mode,
         model_stat = model_stat.reset_index()
         model_bin_stat = expand_stat(model_bin_stat, digit)
         model_bin_stat = model_bin_stat.reset_index()
-        model_stat.to_excel(writer, sheet_name=label+'_model_stat', startcol=0, index=False)
+        format_null(model_stat['variable'].rank(method='dense').astype(int).rename('num').to_frame()).to_excel(
+            writer, sheet_name=label+'_model_stat', startcol=0, index=False)
+        model_stat.to_excel(writer, sheet_name=label+'_model_stat', startcol=1, index=False)
         sheet = writer.sheets[label+'_model_stat']
-        set_column_width(model_stat, sheet)
-        model_bin_stat.to_excel(writer, sheet_name=label+'_model_bin_stat', startcol=0, index=False)
+        set_column_width(model_stat, sheet, 1)
+        format_null(model_bin_stat['variable'].rank(method='dense').astype(int).rename('num').to_frame()).to_excel(
+            writer, sheet_name=label+'_model_bin_stat', startcol=0, index=False)
+        model_bin_stat.to_excel(writer, sheet_name=label+'_model_bin_stat', startcol=1, index=False)
         sheet = writer.sheets[label+'_model_bin_stat']
-        set_column_width(model_bin_stat, sheet)
+        set_column_width(model_bin_stat, sheet, 1)
         sheet = writer.sheets[label+'_model_stat']
         for i, model_name in enumerate(models_cut_dict[label].keys()):
             sheet.insert_image(row=model_stat.shape[0]+1+30*i, col=0,

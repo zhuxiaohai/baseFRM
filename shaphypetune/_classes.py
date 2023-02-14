@@ -11,7 +11,7 @@ from sklearn.utils.validation import check_is_fitted
 from sklearn.base import BaseEstimator, TransformerMixin
 
 from joblib import Parallel, delayed
-from hyperopt import fmin, tpe
+from hyperopt import fmin, tpe, Trials
 
 from .utils import ParameterSampler, _check_param, _check_boosting
 from .utils import _set_categorical_indexes, _get_categorical_support
@@ -65,7 +65,8 @@ class _BoostSearch(BaseEstimator):
 
     def _fit(self, X, y, fit_params, params=None):
         """Private method to fit a single boosting model and extract results."""
-
+        if self.verbose > 0:
+            print('try', params)
         model = self._build_model(params)
         if isinstance(model, _BoostSelector):
             model.fit(X=X, y=y, **fit_params)
@@ -218,6 +219,8 @@ class _BoostSearch(BaseEstimator):
             for v in vars(models[id_best]):
                 if v.endswith("_") and not v.startswith("__"):
                     setattr(self, str(v), getattr(models[id_best], str(v)))
+
+            print('best id', id_best+1, self.best_params_, 'iter', self.best_iter_)
 
         return self
 
@@ -923,6 +926,9 @@ class _RFA(_BoostSelector):
             raise ValueError("Step must be >0.")
 
         self.fixed_features = fit_params.pop('fixed_features', [])
+        self.existing_coefs = np.array(fit_params.pop('existing_coefs', []))
+        self.threshold_bygroup = fit_params.pop('threshold_bygroup', False)
+        self.step_back = fit_params.pop('step_back', False)
         self.support_ = np.zeros(n_features, dtype=np.bool)
         self._support = np.ones(n_features, dtype=np.bool)
         self.ranking_ = np.ones(n_features, dtype=np.int)
@@ -933,8 +939,18 @@ class _RFA(_BoostSelector):
             self.score_history_ = []
             eval_score = np.max if self.greater_is_better else np.min
             best_score = -np.inf if self.greater_is_better else np.inf
+            best_support, best_ranking = [], []
 
+        counter = 0
         while np.sum(self._support) > min_features_to_select:
+            if scoring:
+                if type(X) is np.ndarray:
+                    added_features = [col for col in np.arange(n_features)[self.support_]
+                                      if col not in np.arange(n_features)[best_support]]
+                else:
+                    added_features = [col for col in X.columns[self.support_]
+                                      if col not in X.columns[best_support]]
+
             # remaining features
             features = np.arange(n_features)[self._support]
 
@@ -946,34 +962,58 @@ class _RFA(_BoostSelector):
                 score = self._step_score(estimator)
                 self.score_history_.append(score)
                 if best_score != eval_score([score, best_score]):
+                    if self.verbose > 0:
+                        print('counter {}: score {:.4f} adding features '.format(counter, score), added_features)
                     best_score = score
                     best_support = self.support_.copy()
                     best_ranking = self.ranking_.copy()
                     best_estimator = estimator
+                elif self.step_back:
+                    if self.verbose > 0:
+                        print('counter {}: score {:4f} discarding features '.format(counter, score), added_features)
+                    self.support_ = best_support.copy()
+                    self.ranking_ = best_ranking.copy()
+                else:
+                    if self.verbose > 0:
+                        print('counter {}: score {:4f} suspending features'.format(counter, score), added_features)
 
             # evaluate the remaining features
-            _fit_params, _estimator = self._check_fit_params(fit_params, inverse=True)
-            if self.verbose > 1:
-                print("Fitting estimator with {} features".format(self._support.sum()))
-            with contextlib.redirect_stdout(io.StringIO()):
-                _estimator.fit(self._transform(X, inverse=True), y, **_fit_params)
-                if self._support.sum() == n_features:
-                    all_features_estimator = _estimator
-
-            # get coefs
-            if self.importance_type == 'feature_importances':
-                coefs = _feature_importances(_estimator)
+            if len(self.existing_coefs) > 0:
+                coefs = self.existing_coefs[self._support]
             else:
-                if eval_importance:
-                    coefs = _shap_importances(
-                        _estimator, _fit_params['eval_set'][-1][0])
+                _fit_params, _estimator = self._check_fit_params(fit_params, inverse=True)
+                if self.verbose > 1:
+                    print("Fitting estimator with {} features".format(self._support.sum()))
+                with contextlib.redirect_stdout(io.StringIO()):
+                    _estimator.fit(self._transform(X, inverse=True), y, **_fit_params)
+                    if self._support.sum() == n_features:
+                        all_features_estimator = _estimator
+
+                # get coefs
+                if self.importance_type == 'feature_importances':
+                    coefs = _feature_importances(_estimator)
                 else:
-                    coefs = _shap_importances(
-                        _estimator, self._transform(X, inverse=True))
+                    if eval_importance:
+                        coefs = _shap_importances(
+                            _estimator, _fit_params['eval_set'][-1][0])
+                    else:
+                        coefs = _shap_importances(
+                            _estimator, self._transform(X, inverse=True))
             ranks = np.argsort(-coefs)  # the rank is inverted
 
             # add the best features
-            threshold = min(step, np.sum(self._support) - min_features_to_select)
+            if self.threshold_bygroup:
+                threshold = 0
+                for i in range(1, coefs.shape[0]):
+                    threshold += 1
+                    if coefs[ranks][i] != coefs[ranks][i-1]:
+                        break
+                    else:
+                        if i == coefs.shape[0] - 1:
+                            threshold = coefs.shape[0]
+                threshold = max(1, threshold)
+            else:
+                threshold = min(step, np.sum(self._support) - min_features_to_select)
 
             # remaining features to test
             self._support[features[ranks][:threshold]] = False
@@ -981,6 +1021,8 @@ class _RFA(_BoostSelector):
             # features tested
             self.support_[features[ranks][:threshold]] = True
             self.ranking_[np.logical_not(self.support_)] += 1
+
+            counter += 1
 
         # set final attributes
         _fit_params, self.estimator_ = self._check_fit_params(fit_params)
@@ -991,12 +1033,23 @@ class _RFA(_BoostSelector):
 
         # compute step score when only min_features_to_select features left
         if scoring:
+            if type(X) is np.ndarray:
+                added_features = [col for col in np.arange(n_features)[self.support_]
+                                  if col not in np.arange(n_features)[best_support]]
+            else:
+                added_features = [col for col in X.columns[self.support_]
+                                  if col not in X.columns[best_support]]
             score = self._step_score(self.estimator_)
             self.score_history_.append(score)
             if best_score == eval_score([score, best_score]):
+                if self.verbose > 0:
+                    print('counter {}: score {:4f} discarding features '.format(counter, score), added_features)
                 self.support_ = best_support
                 self.ranking_ = best_ranking
                 self.estimator_ = best_estimator
+            else:
+                if self.verbose > 0:
+                    print('counter {}: score {:.4f} adding features '.format(counter, score), added_features)
 
             if (len(set(self.score_history_)) == 1) and (len(self.fixed_features) == 0):
                 self.support_ = np.ones(n_features, dtype=np.bool)
@@ -1054,6 +1107,231 @@ class _RFA(_BoostSelector):
         check_is_fitted(self)
 
         return self._transform(X, inverse=False)
+
+
+class _SearchingRFA(_RFA, _BoostSearch):
+    def __init__(self,
+                 estimator, *,
+                 min_features_to_select=None,
+                 step=1,
+                 param_grid=None,
+                 greater_is_better=False,
+                 importance_type='feature_importances',
+                 train_importance=True,
+                 n_iter=None,
+                 sampling_seed=None,
+                 verbose=1,
+                 n_jobs=None):
+
+        self.estimator = estimator
+        self.min_features_to_select = min_features_to_select
+        self.step = step
+        self.param_grid = param_grid
+        self.greater_is_better = greater_is_better
+        self.importance_type = importance_type
+        self.train_importance = train_importance
+        self.n_iter = n_iter
+        self.sampling_seed = sampling_seed
+        self.verbose = verbose
+        self.n_jobs = n_jobs
+
+    def _build_model(self, params=None):
+        estimator = clone(self.estimator)
+        if params is not None:
+            estimator.set_params(**params)
+        return estimator
+
+    def fit(self, X, y, **fit_params):
+        """Fit the RFA algorithm to automatically tune
+        the number of selected features."""
+
+        self.boost_type_ = _check_boosting(self.estimator)
+
+        importances = ['feature_importances', 'shap_importances']
+        if self.importance_type not in importances:
+            raise ValueError(
+                "importance_type must be one of {}. Get '{}'".format(
+                    importances, self.importance_type))
+
+        # scoring controls the calculation of self.score_history_
+        # scoring is used automatically when 'eval_set' is in fit_params
+        scoring = 'eval_set' in fit_params
+        if self.importance_type == 'shap_importances':
+            if not self.train_importance and not scoring:
+                raise ValueError(
+                    "When train_importance is set to False, using "
+                    "shap_importances, pass at least a eval_set.")
+            eval_importance = not self.train_importance and scoring
+
+        shapes = np.shape(X)
+        if len(shapes) != 2:
+            raise ValueError("X must be 2D.")
+        n_features = shapes[1]
+
+        # create mask for user-defined categorical features
+        self._cat_support = _get_categorical_support(n_features, fit_params)
+
+        if self.min_features_to_select is None:
+            if scoring:
+                min_features_to_select = 1
+            else:
+                min_features_to_select = n_features // 2
+        else:
+            if scoring:
+                min_features_to_select = self.min_features_to_select
+            else:
+                min_features_to_select = n_features - self.min_features_to_select
+
+        if 0.0 < self.step < 1.0:
+            step = int(max(1, self.step * n_features))
+        else:
+            step = int(self.step)
+        if step <= 0:
+            raise ValueError("Step must be >0.")
+
+        self.fixed_features = fit_params.pop('fixed_features', [])
+        self.existing_coefs = np.array(fit_params.pop('existing_coefs', []))
+        self.threshold_bygroup = fit_params.pop('threshold_bygroup', False)
+        self.step_back = fit_params.pop('step_back', False)
+        self.support_ = np.zeros(n_features, dtype=np.bool)
+        self._support = np.ones(n_features, dtype=np.bool)
+        self.ranking_ = np.ones(n_features, dtype=np.int)
+        self._ranking = np.ones(n_features, dtype=np.int)
+        self.support_[self.fixed_features] = True
+        self._support[self.fixed_features] = False
+        if scoring:
+            self.score_history_ = []
+            eval_score = np.max if self.greater_is_better else np.min
+            best_score = -np.inf if self.greater_is_better else np.inf
+            best_support, best_ranking = [], []
+
+        counter = 0
+        while np.sum(self._support) > min_features_to_select:
+            if scoring:
+                if type(X) is np.ndarray:
+                    added_features = [col for col in np.arange(n_features)[self.support_]
+                                      if col not in np.arange(n_features)[best_support]]
+                else:
+                    added_features = [col for col in X.columns[self.support_]
+                                      if col not in X.columns[best_support]]
+
+            # remaining features
+            features = np.arange(n_features)[self._support]
+
+            # scoring the previous added features
+            if scoring and np.sum(self.support_) > 0:
+                _fit_params, _ = self._check_fit_params(fit_params)
+                super(_RFA, self).fit(self._transform(X, inverse=False), y, trials=Trials(), **_fit_params)
+                estimator = self.estimator_
+                score = self._step_score(estimator)
+                self.score_history_.append(score)
+                if best_score != eval_score([score, best_score]):
+                    if self.verbose > 0:
+                        print('counter {}: score {:.4f} adding features '.format(counter, score), added_features)
+                    best_score = score
+                    best_support = self.support_.copy()
+                    best_ranking = self.ranking_.copy()
+                    best_estimator = estimator
+                    best_params = self.best_params_
+                    best_iter = self.best_iter_
+                elif self.step_back:
+                    if self.verbose > 0:
+                        print('counter {}: score {:4f} discarding features '.format(counter, score), added_features)
+                    self.support_ = best_support.copy()
+                    self.ranking_ = best_ranking.copy()
+                else:
+                    if self.verbose > 0:
+                        print('counter {}: score {:4f} suspending features '.format(counter, score), added_features)
+                if self.verbose > 0:
+                    print('history best score {:.4f}'.format(best_score), 'params', best_params, 'iter', best_iter)
+
+            # evaluate the remaining features
+            if len(self.existing_coefs) > 0:
+                coefs = self.existing_coefs[self._support]
+            else:
+                _fit_params, _ = self._check_fit_params(fit_params, inverse=True)
+                if self.verbose > 1:
+                    print("Fitting estimator with {} features".format(self._support.sum()))
+                super(_RFA, self).fit(self._transform(X, inverse=True), y, trials=Trials(), **_fit_params)
+                _estimator = self.estimator_
+                if self._support.sum() == n_features:
+                    all_features_estimator = _estimator
+
+                # get coefs
+                if self.importance_type == 'feature_importances':
+                    coefs = _feature_importances(_estimator)
+                else:
+                    if eval_importance:
+                        coefs = _shap_importances(
+                            _estimator, _fit_params['eval_set'][-1][0])
+                    else:
+                        coefs = _shap_importances(
+                            _estimator, self._transform(X, inverse=True))
+            ranks = np.argsort(-coefs)  # the rank is inverted
+
+            # add the best features
+            if self.threshold_bygroup:
+                threshold = 0
+                for i in range(1, coefs.shape[0]):
+                    threshold += 1
+                    if coefs[ranks][i] != coefs[ranks][i-1]:
+                        break
+                    else:
+                        if i == coefs.shape[0] - 1:
+                            threshold = coefs.shape[0]
+                threshold = max(1, threshold)
+            else:
+                threshold = min(step, np.sum(self._support) - min_features_to_select)
+
+            # remaining features to test
+            self._support[features[ranks][:threshold]] = False
+            self._ranking[np.logical_not(self._support)] += 1
+            # features tested
+            self.support_[features[ranks][:threshold]] = True
+            self.ranking_[np.logical_not(self.support_)] += 1
+
+            counter += 1
+
+        # set final attributes
+        _fit_params, _ = self._check_fit_params(fit_params)
+        if self.verbose > 1:
+            print("Fitting estimator with {} features".format(self._support.sum()))
+        super(_RFA, self).fit(self._transform(X, inverse=False), y, trials=Trials(), **_fit_params)
+
+        # compute step score when only min_features_to_select features left
+        if scoring:
+            if type(X) is np.ndarray:
+                added_features = [col for col in np.arange(n_features)[self.support_]
+                                  if col not in np.arange(n_features)[best_support]]
+            else:
+                added_features = [col for col in X.columns[self.support_]
+                                  if col not in X.columns[best_support]]
+            score = self._step_score(self.estimator_)
+            self.score_history_.append(score)
+            if best_score == eval_score([score, best_score]):
+                if self.verbose > 0:
+                    print('counter {}: score {:4f} discarding features '.format(counter, score), added_features)
+                self.support_ = best_support
+                self.ranking_ = best_ranking
+                self.estimator_ = best_estimator
+                self.best_params_ = best_params
+                self.best_iter_ = best_iter
+                self.best_score_ = best_score
+            else:
+                if self.verbose > 0:
+                    print('counter {}: score {:.4f} adding features '.format(counter, score), added_features)
+            if self.verbose > 0:
+                print('history best score {:.4f}'.format(self.best_score_),
+                      'params', self.best_params_, 'iter', self.best_iter_)
+
+            if (len(set(self.score_history_)) == 1) and (len(self.fixed_features) == 0):
+                self.support_ = np.ones(n_features, dtype=np.bool)
+                self.ranking_ = np.ones(n_features, dtype=np.int)
+                self.estimator_ = all_features_estimator
+
+        self.n_features_ = self.support_.sum()
+
+        return self
 
 
 class _FastRFE(_RFE, _BoostSearch):
