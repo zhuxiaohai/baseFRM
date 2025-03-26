@@ -108,4 +108,7 @@ venv.bak/
 # Pycharm
 .idea/
 
+# vscode
+.vscode/
+
 # End of https://www.gitignore.io/api/python

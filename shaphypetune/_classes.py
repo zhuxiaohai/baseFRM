@@ -525,11 +525,11 @@ class _Boruta(_BoostSelector):
 
         # holds the decision about each feature:
         # default (0); accepted (1); rejected (-1)
-        dec_reg = np.zeros(n_features, dtype=np.int)
-        dec_history = np.zeros((self.max_iter, n_features), dtype=np.int)
+        dec_reg = np.zeros(n_features, dtype=int)
+        dec_history = np.zeros((self.max_iter, n_features), dtype=int)
         # counts how many times a given feature was more important than
         # the best of the shadow features
-        hit_reg = np.zeros(n_features, dtype=np.int)
+        hit_reg = np.zeros(n_features, dtype=int)
         # record the history of the iterations
         imp_history = np.zeros(n_features, dtype=np.float)
         sha_max_history = []
@@ -594,8 +594,8 @@ class _Boruta(_BoostSelector):
         confirmed = np.where(dec_reg == 1)[0]
         tentative = np.where(dec_reg == 0)[0]
 
-        self.support_ = np.zeros(n_features, dtype=np.bool)
-        self.ranking_ = np.ones(n_features, dtype=np.int) * 4
+        self.support_ = np.zeros(n_features, dtype=bool)
+        self.ranking_ = np.ones(n_features, dtype=int) * 4
         self.n_features_ = confirmed.shape[0]
         self.importance_history_ = imp_history[1:]
 
@@ -740,8 +740,8 @@ class _RFE(_BoostSelector):
         if step <= 0:
             raise ValueError("Step must be >0.")
 
-        self.support_ = np.ones(n_features, dtype=np.bool)
-        self.ranking_ = np.ones(n_features, dtype=np.int)
+        self.support_ = np.ones(n_features, dtype=bool)
+        self.ranking_ = np.ones(n_features, dtype=int)
         if scoring:
             self.score_history_ = []
             eval_score = np.max if self.greater_is_better else np.min
@@ -929,10 +929,10 @@ class _RFA(_BoostSelector):
         self.existing_coefs = np.array(fit_params.pop('existing_coefs', []))
         self.threshold_bygroup = fit_params.pop('threshold_bygroup', False)
         self.step_back = fit_params.pop('step_back', False)
-        self.support_ = np.zeros(n_features, dtype=np.bool)
-        self._support = np.ones(n_features, dtype=np.bool)
-        self.ranking_ = np.ones(n_features, dtype=np.int)
-        self._ranking = np.ones(n_features, dtype=np.int)
+        self.support_ = np.zeros(n_features, dtype=bool)
+        self._support = np.ones(n_features, dtype=bool)
+        self.ranking_ = np.ones(n_features, dtype=int)
+        self._ranking = np.ones(n_features, dtype=int)
         self.support_[self.fixed_features] = True
         self._support[self.fixed_features] = False
         if scoring:
@@ -1052,8 +1052,8 @@ class _RFA(_BoostSelector):
                     print('counter {}: score {:.4f} adding features '.format(counter, score), added_features)
 
             if (len(set(self.score_history_)) == 1) and (len(self.fixed_features) == 0):
-                self.support_ = np.ones(n_features, dtype=np.bool)
-                self.ranking_ = np.ones(n_features, dtype=np.int)
+                self.support_ = np.ones(n_features, dtype=bool)
+                self.ranking_ = np.ones(n_features, dtype=int)
                 self.estimator_ = all_features_estimator
         self.n_features_ = self.support_.sum()
 
@@ -1193,10 +1193,10 @@ class _SearchingRFA(_RFA, _BoostSearch):
         self.existing_coefs = np.array(fit_params.pop('existing_coefs', []))
         self.threshold_bygroup = fit_params.pop('threshold_bygroup', False)
         self.step_back = fit_params.pop('step_back', False)
-        self.support_ = np.zeros(n_features, dtype=np.bool)
-        self._support = np.ones(n_features, dtype=np.bool)
-        self.ranking_ = np.ones(n_features, dtype=np.int)
-        self._ranking = np.ones(n_features, dtype=np.int)
+        self.support_ = np.zeros(n_features, dtype=bool)
+        self._support = np.ones(n_features, dtype=bool)
+        self.ranking_ = np.ones(n_features, dtype=int)
+        self._ranking = np.ones(n_features, dtype=int)
         self.support_[self.fixed_features] = True
         self._support[self.fixed_features] = False
         if scoring:
@@ -1325,8 +1325,8 @@ class _SearchingRFA(_RFA, _BoostSearch):
                       'params', self.best_params_, 'iter', self.best_iter_)
 
             if (len(set(self.score_history_)) == 1) and (len(self.fixed_features) == 0):
-                self.support_ = np.ones(n_features, dtype=np.bool)
-                self.ranking_ = np.ones(n_features, dtype=np.int)
+                self.support_ = np.ones(n_features, dtype=bool)
+                self.ranking_ = np.ones(n_features, dtype=int)
                 self.estimator_ = all_features_estimator
 
         self.n_features_ = self.support_.sum()
@@ -1523,7 +1523,7 @@ class _FastRFE(_RFE, _BoostSearch):
         else:
             min_features_to_select = self.min_features_to_select
 
-        self.ranking_ = np.ones(n_features, dtype=np.int)
+        self.ranking_ = np.ones(n_features, dtype=int)
         self.tracking_ = [[] for _ in range(n_features)]
         if scoring:
             fit_params = self._check_metric_fn(fit_params)
@@ -1540,12 +1540,12 @@ class _FastRFE(_RFE, _BoostSearch):
         while counter < n_iter:
             # remaining features
             if counter <= (self.n_warmup_iter - 1):
-                self.support_ = np.zeros(n_features, dtype=np.bool)
+                self.support_ = np.zeros(n_features, dtype=bool)
                 self.support_[random.sample(np.arange(n_features).tolist(), self.min_features_to_select)] = True
             else:
                 avg_tracking_imp = np.array(list(map(lambda x: sum(x) / len(x) if len(x) > 0 else 0.5, self.tracking_)))
                 self.ranking_ = np.argsort(np.random.rand(n_features) * avg_tracking_imp)[::-1]
-                self.support_ = np.zeros(n_features, dtype=np.bool)
+                self.support_ = np.zeros(n_features, dtype=bool)
                 self.support_[np.arange(n_features)[self.ranking_][:min_features_to_select]] = True
 
             _fit_params, estimator = self._check_fit_params(fit_params)
