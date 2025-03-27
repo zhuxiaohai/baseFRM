@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 HERE = pathlib.Path(__file__).parent
 
 VERSION = '0.2.6'
-PACKAGE_NAME = 'shap-hypetune'
+PACKAGE_NAME = 'shaphypetune'
 AUTHOR = 'Marco Cerliani'
 AUTHOR_EMAIL = 'cerlymarco@gmail.com'
 URL = 'https://github.com/cerlymarco/shap-hypetune'
@@ -14,13 +14,11 @@ DESCRIPTION = 'A python package for simultaneous Hyperparameters Tuning and Feat
 LONG_DESCRIPTION = (HERE / "README.md").read_text()
 LONG_DESC_TYPE = "text/markdown"
 
+REQUIREMENTS_FILE = HERE / "requirements.txt"
 INSTALL_REQUIRES = [
-    'numpy',
-    'scipy',
-    'scikit-learn>=0.24.1',
-    'shap>=0.39.0',
-    'hyperopt==0.2.5'
-]
+       line.strip() for line in REQUIREMENTS_FILE.read_text().splitlines()
+       if line.strip() and not line.startswith('#')
+   ]
 
 setup(name=PACKAGE_NAME,
       version=VERSION,
