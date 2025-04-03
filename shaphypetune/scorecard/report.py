@@ -953,4 +953,71 @@ def write_report(df, models_cut_dict, vars_cut_dict, y, dt_cut, digit, mode,
         for i, model_name in enumerate(models_cut_dict[label].keys()):
             sheet.insert_image(row=model_stat.shape[0]+1+30*i, col=0,
                                filename=os.path.join(output_path, label, model_name + '.png'))
-    writer.save()
+    writer.save() 
+
+def plot_reg_bins_trend(df, group_col, base_group, y_pred_col, y_true_col, n_bins=20):
+    """
+    根据基准数据集划分等频分箱，并对每个数据集分别绘制直方图和曲线图。
+
+    参数:
+    - df: pd.DataFrame, 包含所有数据的数据框
+    - group_col: str, 用于区分不同数据集的列名
+    - base_group: str, 指定基准划分数据集的名称
+    - y_pred_col: str, 预测值列名
+    - y_true_col: str, 真实值列名
+    - n_bins: int, 分箱数量，默认为 20
+    """
+    # Step 1: 获取基准数据集并计算分箱切点
+    base_dataset = df[df[group_col] == base_group]
+    base_dataset['bin'], bin_edges = pd.qcut(base_dataset[y_pred_col], q=n_bins, retbins=True, labels=False)
+    
+    # Step 2: 初始化绘图
+    unique_groups = np.sort(df[group_col].unique())
+    n_datasets = len(unique_groups)
+    fig, axes = plt.subplots(1, n_datasets, figsize=(6 * n_datasets, 4), sharey=False)
+
+    # 如果只有一个数据集，axes 不是列表，转成列表以统一处理
+    if n_datasets == 1:
+        axes = [axes]
+
+    # Step 3: 对每个数据集应用分箱并绘图
+    for i, group in enumerate(unique_groups):
+        dataset = df[df[group_col] == group]
+        mape = metrics.mean_absolute_percentage_error(dataset[y_true_col], dataset[y_pred_col])
+        r2 = metrics.r2_score(dataset[y_true_col], dataset[y_pred_col])
+        
+        # 使用相同的切点进行分箱
+        dataset['bin'] = pd.cut(dataset[y_pred_col], bins=bin_edges, labels=False, include_lowest=True)
+
+        # 计算每个分箱的样本数量和 y_true 的平均值
+        bin_counts = dataset['bin'].value_counts().sort_index()  # 每个分箱的样本数量
+        bin_means = dataset.groupby('bin')[y_true_col].mean()  # 每个分箱中 y_true 的平均值
+
+        # 绘图
+        ax1 = axes[i]
+        ax2 = ax1.twinx()  # 创建双 Y 轴
+
+        # 绘制直方图（样本数量）
+        ax1.bar(bin_counts.index + 1, bin_counts.values, color='skyblue', alpha=0.7, label='Sample Count')
+        ax1.set_ylabel('Sample Count', fontsize=12, color='blue')
+        ax1.tick_params(axis='y', labelcolor='blue')
+
+        # 绘制曲线（y_true 的平均值）
+        ax2.plot(bin_means.index + 1, bin_means.values, color='red', marker='o', label='y_true Mean', linewidth=2)
+        ax2.set_ylabel('y_true Mean', fontsize=12, color='red')
+        ax2.tick_params(axis='y', labelcolor='red')
+
+        # 设置标题
+        ax1.set_title(f'{group}: -r2:{r2:.4f}-mape:{mape:.4f}', fontsize=14)
+        ax1.set_xlabel('Bin Number', fontsize=12)
+        ax1.grid(alpha=0.3)
+
+        # 添加图例
+        ax1.legend(loc='upper left', fontsize=10)
+        ax2.legend(loc='upper right', fontsize=10)
+
+    # 调整布局，确保横向排列的图不重叠
+    plt.tight_layout()
+    plt.subplots_adjust(wspace=0.4)
+    plt.show()
+

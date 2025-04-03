@@ -30,6 +30,6 @@ setup(name=PACKAGE_NAME,
       author_email=AUTHOR_EMAIL,
       url=URL,
       install_requires=INSTALL_REQUIRES,
-      python_requires='==3.6.2',
+      python_requires='==3.7.12',
       packages=find_packages()
       )
