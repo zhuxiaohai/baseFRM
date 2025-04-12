@@ -1,0 +1,28 @@
+import pandas as pd
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import train_test_split
+from xgboost import XGBClassifier
+from shaphypetune.scorecard.report import plt_multi_rsk_trend
+
+
+def test_plt_multi_rsk_trend():
+    X, y = load_breast_cancer(return_X_y=True)
+    x_train, x_valid, y_train, y_valid = train_test_split(X, y, random_state=0)
+    afsxc = XGBClassifier(n_estimators=200, verbosity=0, n_jobs=2)
+    afsxc.fit(x_train, y_train,
+                eval_set=[(x_valid, y_valid)],
+                early_stopping_rounds=6)
+    cols = [f"col{i}" for i in range(x_train.shape[-1])]
+    train = pd.DataFrame(x_train, columns=cols)
+    train["y"] = y_train
+    train["set"] = "1train"
+    valid = pd.DataFrame(x_valid, columns=cols)
+    valid["y"] = y_valid
+    valid["set"] = "2test"
+    df = pd.concat([train, valid], axis=0)
+    df["pred"] = afsxc.predict_proba(df[cols].values)[:, 1]
+
+    _ = plt_multi_rsk_trend(df, ["pred"], y="y", dt='set', dt_cut='set', miss_values=[-99], score_cut={"pred": 20},
+                        method='quantile', digit=4, binning_col='set', binning_set='1train',
+                        if_plot=True, output_path=None)
+    

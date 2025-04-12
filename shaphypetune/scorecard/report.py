@@ -219,7 +219,6 @@ def out_all_in_one(df, inputx, y='fpd4', dt='event_date', dt_cut='month', miss_v
     TB1 = pd.DataFrame()
     TB2 = pd.DataFrame()
     for x in inputx:
-        print(x)
         if y is None:
             cut = 10
             temp_df['fake_y'] = 1
