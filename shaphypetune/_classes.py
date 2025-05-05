@@ -1455,7 +1455,7 @@ class _FastRFE(_RFE, _BoostSearch):
         self.estimator = estimator
         self.min_features_to_select = min_features_to_select
         self.param_grid = param_grid
-        self.greater_is_better = greater_is_better
+        self.greater_is_better = True
         self.importance_type = importance_type
         self.train_importance = train_importance
         self.n_iter = n_iter
@@ -1463,26 +1463,26 @@ class _FastRFE(_RFE, _BoostSearch):
         self.sampling_seed = sampling_seed
         self.verbose = verbose
 
-    def _check_metric_fn(self, fit_params):
-        self.greater_is_better = True
-        if self.boost_type_ == 'XGB':
-            if hasattr(self.estimator, 'predict_proba'):
-                metric_fn = xgb_ks_score_negative
-            else:
-                metric_fn = xgb_r2_score_negative
-        else:
-            if hasattr(self.estimator, 'predict_proba'):
-                metric_fn = eval_ks
-            else:
-                metric_fn = eval_r2
+    # def _check_metric_fn(self, fit_params):
+    #     self.greater_is_better = True
+    #     if self.boost_type_ == 'XGB':
+    #         if hasattr(self.estimator, 'predict_proba'):
+    #             metric_fn = xgb_ks_score_negative
+    #         else:
+    #             metric_fn = xgb_r2_score_negative
+    #     else:
+    #         if hasattr(self.estimator, 'predict_proba'):
+    #             metric_fn = eval_ks
+    #         else:
+    #             metric_fn = eval_r2
 
-        if "eval_metric" in fit_params.keys():
-            if not callable(fit_params['eval_metric']):
-                fit_params['eval_metric'] = metric_fn
-        else:
-            fit_params['eval_metric'] = metric_fn
+    #     if "eval_metric" in fit_params.keys():
+    #         if not callable(fit_params['eval_metric']):
+    #             fit_params['eval_metric'] = metric_fn
+    #     else:
+    #         fit_params['eval_metric'] = metric_fn
 
-        return fit_params
+    #     return fit_params
 
     def fit(self, X, y, **fit_params):
         """USE RFE and E&E algorithms to automatically select the designated
@@ -1526,7 +1526,7 @@ class _FastRFE(_RFE, _BoostSearch):
         self.ranking_ = np.ones(n_features, dtype=int)
         self.tracking_ = [[] for _ in range(n_features)]
         if scoring:
-            fit_params = self._check_metric_fn(fit_params)
+            # fit_params = self._check_metric_fn(fit_params)
             self.score_history_ = []
             eval_score = np.max if self.greater_is_better else np.min
             best_score = -np.inf if self.greater_is_better else np.inf
@@ -1561,6 +1561,8 @@ class _FastRFE(_RFE, _BoostSearch):
             # get coefs
             if self.importance_type == 'feature_importances':
                 coefs = _feature_importances(estimator)
+                if coefs.ndim > 1:
+                    coefs = coefs.mean(axis=-1)
             else:
                 if eval_importance:
                     coefs = _shap_importances(
@@ -1568,6 +1570,8 @@ class _FastRFE(_RFE, _BoostSearch):
                 else:
                     coefs = _shap_importances(
                         estimator, self.transform(X))
+                if coefs.ndim > 1:
+                    coefs = coefs.mean(axis=-1)
                 coefs = coefs / np.sum(coefs)
 
             if scoring:

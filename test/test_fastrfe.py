@@ -1,8 +1,8 @@
 import numpy as np
 from scipy import stats
-from sklearn.datasets import load_breast_cancer, load_boston, load_iris
+from sklearn.datasets import load_breast_cancer, load_iris, fetch_california_housing, make_multilabel_classification
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, accuracy_score
+from sklearn.metrics import r2_score, accuracy_score, roc_auc_score
 from xgboost import XGBClassifier, XGBRegressor
 from shaphypetune._classes import _FastRFE
 from shaphypetune.gbdt_utils.xgboost_metrics import xgb_ks_score_negative, xgb_r2_score_negative
@@ -23,10 +23,10 @@ def test_fastrfe_classification():
         'reg_alpha': [1, 10],
         'random_state': stats.rv_discrete(values=([i*8 for i in range(1000)], [1/1000]*1000))
     }
-    clf_xgb = XGBClassifier(n_estimators=200, verbosity=0, n_jobs=2)
+    clf_xgb = XGBClassifier(n_estimators=200, verbosity=0, n_jobs=2, early_stopping_rounds=6, eval_metric=xgb_ks_score_negative)
     model = _FastRFE(clf_xgb, min_features_to_select=5, param_grid=param_dist, n_iter=5, n_warmup_iter=1,
-                     sampling_seed=1, verbose=2)
-    model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)], early_stopping_rounds=6)
+                     sampling_seed=1, verbose=2, importance_type="shap_importances", train_importance=False)
+    model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)])
 
     print('n_features', model.n_features_)
     np.testing.assert_almost_equal([cal_ks(model.predict_proba(x_valid)[:, 1], y_valid)[0]],
@@ -35,18 +35,16 @@ def test_fastrfe_classification():
                                    [model.best_score_], decimal=5)
 
     print(model.best_params_)
-    afsxc = XGBClassifier(n_estimators=200, verbosity=0, n_jobs=2, **model.best_params_)
+    afsxc = XGBClassifier(n_estimators=200, verbosity=0, n_jobs=2, early_stopping_rounds=6, eval_metric=xgb_ks_score_negative, verbose=True, **model.best_params_)
     afsxc.fit(x_train[:, model.support_], y_train,
-              eval_set=[(x_valid[:, model.support_], y_valid)],
-              early_stopping_rounds=6,
-              eval_metric=xgb_ks_score_negative)
+              eval_set=[(x_valid[:, model.support_], y_valid)],)
     test_pred = afsxc.predict_proba(x_valid[:, model.support_])[:, 1]
     np.testing.assert_almost_equal([cal_ks(test_pred, y_valid)[0]],
                                    [model.best_score_], decimal=5)
 
 
 def test_fastrfe_regression():
-    X, y = load_boston(return_X_y=True)
+    X, y = fetch_california_housing(return_X_y=True)
     x_train, x_valid, y_train, y_valid = train_test_split(X, y, random_state=0)
     param_dist = {
         'max_depth': [2, 3, 4],
@@ -58,10 +56,10 @@ def test_fastrfe_regression():
         'reg_alpha': [1, 10],
         'random_state': stats.rv_discrete(values=([i*8 for i in range(1000)], [1/1000]*1000))
     }
-    clf_xgb = XGBRegressor(n_estimators=200, verbosity=0, n_jobs=2, base_score=np.mean(y_train))
+    clf_xgb = XGBRegressor(n_estimators=200, verbosity=0, n_jobs=2, base_score=np.mean(y_train), early_stopping_rounds=6, eval_metric=xgb_r2_score_negative)
     model = _FastRFE(clf_xgb, min_features_to_select=5, param_grid=param_dist, n_iter=5, n_warmup_iter=3,
                      importance_type='shap_importances', train_importance=False, sampling_seed=1, verbose=2)
-    model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)], early_stopping_rounds=6, verbose=False)
+    model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)], verbose=False)
 
     print('n_features', model.n_features_)
     np.testing.assert_almost_equal([r2_score(y_valid, model.predict(x_valid))],
@@ -70,37 +68,17 @@ def test_fastrfe_regression():
                                    [model.best_score_], decimal=5)
 
     print(model.best_params_)
-    afsxc = XGBRegressor(n_estimators=200, verbosity=0, n_jobs=2, base_score=np.mean(y_train), **model.best_params_)
+    afsxc = XGBRegressor(n_estimators=200, verbosity=0, n_jobs=2, base_score=np.mean(y_train), early_stopping_rounds=6, eval_metric=xgb_r2_score_negative, **model.best_params_)
     afsxc.fit(x_train[:, model.support_], y_train,
-              eval_set=[(x_valid[:, model.support_], y_valid)],
-              early_stopping_rounds=6,
-              eval_metric=xgb_r2_score_negative)
+              eval_set=[(x_valid[:, model.support_], y_valid)]
+              )
     test_pred = afsxc.predict(x_valid[:, model.support_])
     np.testing.assert_almost_equal([r2_score(y_valid, test_pred)],
                                    [model.best_score_], decimal=5)
 
 
 def test_fastrfe_multiclass():
-    def xgb_accuracy_score_negative(y_pred, y_true_dmatrix):
-        """
-        计算accuracy score的负值作为XGBoost的评估指标
-        
-        Parameters:
-        -----------
-        y_pred : array-like
-            模型预测的概率值或类别
-        y_true_dmatrix : xgb.DMatrix
-            包含真实标签的DMatrix对象
-            
-        Returns:
-        --------
-        metric_name : str
-            指标名称 'accuracy'
-        metric_value : float
-            accuracy的负值
-        """
-        y_true = y_true_dmatrix.get_label()
-        
+    def xgb_accuracy_score_negative(y_true, y_pred):
         # 对于二分类，需要将概率值转换为类别
         if len(np.unique(y_true)) == 2:
             y_pred_labels = (y_pred > 0.5).astype(int)
@@ -109,7 +87,7 @@ def test_fastrfe_multiclass():
             y_pred_labels = np.argmax(y_pred, axis=1)
             
         acc = accuracy_score(y_true, y_pred_labels)
-        return 'accuracy', -acc
+        return -acc
 
     
     # 加载iris数据集
@@ -129,14 +107,14 @@ def test_fastrfe_multiclass():
     }
     
     # 初始化多分类XGBoost分类器
-    clf_xgb = XGBClassifier(n_estimators=100, verbosity=0, n_jobs=2, objective='multi:softprob', num_class=3)
+    clf_xgb = XGBClassifier(n_estimators=100, verbosity=0, n_jobs=2, objective='multi:softprob', early_stopping_rounds=6, eval_metric=xgb_accuracy_score_negative, num_class=3)
     
     # 初始化FastRFE
     model = _FastRFE(clf_xgb, min_features_to_select=2, param_grid=param_dist, n_iter=5, n_warmup_iter=1,
                      sampling_seed=1, verbose=2)
     
     # 训练模型
-    model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)], early_stopping_rounds=6, eval_metric=xgb_accuracy_score_negative)
+    model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)])
     
     print('n_features', model.n_features_)
     
@@ -153,12 +131,12 @@ def test_fastrfe_multiclass():
     
     # 使用最佳参数重新训练模型
     afsxc = XGBClassifier(n_estimators=100, verbosity=0, n_jobs=2, 
+                          early_stopping_rounds=6, eval_metric=xgb_accuracy_score_negative,
                          objective='multi:softprob', num_class=3,
                          **model.best_params_)
     
     afsxc.fit(x_train[:, model.support_], y_train,
-              eval_set=[(x_valid[:, model.support_], y_valid)],
-              early_stopping_rounds=6, eval_metric=xgb_accuracy_score_negative)
+              eval_set=[(x_valid[:, model.support_], y_valid)])
               
     test_pred = afsxc.predict(x_valid[:, model.support_])
     np.testing.assert_almost_equal([accuracy_score(y_valid, test_pred)],
@@ -183,7 +161,7 @@ def test_xgb_with_categorical():
     
     # 使用OneHotEncoder处理类别型特征
     from sklearn.preprocessing import OneHotEncoder
-    enc = OneHotEncoder(sparse=False)
+    enc = OneHotEncoder(sparse_output=False)
     education_encoded = enc.fit_transform(education.reshape(-1, 1))
     
     # 展示编码与原始类别的对应关系
@@ -199,7 +177,9 @@ def test_xgb_with_categorical():
     # 修改计算方式以适应one-hot编码后的特征
     y = (age * 0.1 + income * 0.00003 + 
          np.sum(education_encoded * np.array([1, 2, 3, 4]), axis=1) + 
-         np.random.normal(0, 1, n_samples)) > 0
+         np.random.normal(0, 1, n_samples)) > np.median(
+        age * 0.1 + income * 0.00003 + np.sum(education_encoded * np.array([1, 2, 3, 4]), axis=1)
+    )
     y = y.astype(int)
     
     # 划分训练集和测试集
@@ -210,13 +190,13 @@ def test_xgb_with_categorical():
         n_estimators=100,
         max_depth=3,
         learning_rate=0.1,
-        verbosity=0
+        verbosity=0,
+        early_stopping_rounds=10
     )
     
     # 训练模型
     clf.fit(x_train, y_train,
-            eval_set=[(x_valid, y_valid)],
-            early_stopping_rounds=10)
+            eval_set=[(x_valid, y_valid)])
     
     # 预测并评估
     y_pred = clf.predict(x_valid)
@@ -231,3 +211,36 @@ def test_xgb_with_categorical():
     })
     print('\n特征重要性:')
     print(feature_importance.sort_values('importance', ascending=False))
+    
+   
+
+def test_xgb_with_multilabel_clc(): 
+    def xgb_auc_score_negative(y_true, y_pred):
+        y_true = y_true.reshape(y_pred.shape)
+        auc = roc_auc_score(y_true, y_pred)
+        return -auc
+
+    X, y = make_multilabel_classification(n_features=10, n_classes=3, random_state=0)
+    x_train, x_valid, y_train, y_valid = train_test_split(X, y, random_state=0)
+    param_dist = {
+        'max_depth': [2, 6],
+        'random_state': stats.rv_discrete(values=([i*8 for i in range(1000)], [1/1000]*1000))
+    }
+    clf_xgb = XGBClassifier(n_estimators=200, verbosity=0, n_jobs=2, eval_metric=xgb_auc_score_negative, early_stopping_rounds=6, multi_strategy="one_output_per_tree")
+    model = _FastRFE(clf_xgb, min_features_to_select=10, param_grid=param_dist, n_iter=5, n_warmup_iter=1,
+                    sampling_seed=1, verbose=2, importance_type="shap_importances", train_importance=False)
+    model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)], verbose=True)
+
+    print('n_features', model.n_features_)
+    np.testing.assert_almost_equal([-xgb_auc_score_negative(y_valid, model.predict_proba(x_valid))],
+                                    [model.best_score_], decimal=5)
+    np.testing.assert_almost_equal([-xgb_auc_score_negative(y_valid, model.estimator_.predict_proba(x_valid[:, model.support_]))],
+                                    [model.best_score_], decimal=5)
+
+    print(model.best_params_)
+    afsxc = XGBClassifier(n_estimators=200, verbosity=0, n_jobs=2, eval_metric=xgb_auc_score_negative, early_stopping_rounds=6, multi_strategy="one_output_per_tree", **model.best_params_)
+    afsxc.fit(x_train[:, model.support_], y_train,
+            eval_set=[(x_valid[:, model.support_], y_valid)], verbose=True)
+    test_pred = afsxc.predict_proba(x_valid[:, model.support_])
+    np.testing.assert_almost_equal([-xgb_auc_score_negative(y_valid, test_pred)],
+                                [model.best_score_], decimal=5)
