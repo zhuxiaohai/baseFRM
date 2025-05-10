@@ -10,11 +10,11 @@ import seaborn as sns
 from matplotlib import ticker
 from matplotlib.pyplot import style
 import pylab
-pylab.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体
+# pylab.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体
 pylab.rcParams['axes.unicode_minus'] = False  # 解决保存图像是负号'-'显示为方块的问题
 style.use('seaborn-white')
-mpl.rcParams['font.family'] = 'SimHei'
-mpl.rcParams['font.sans-serif'] = ['SimHei']
+# mpl.rcParams['font.family'] = 'SimHei'
+# mpl.rcParams['font.sans-serif'] = ['SimHei']
 mpl.rcParams['axes.unicode_minus'] = False
 
 import re
@@ -406,9 +406,9 @@ def plt_mosaic(df,inputx, y='fpd4', dt='event_date', miss_values=[-99], score_cu
                 else:
                     x_label_pos.append(round((sum(list(the_pct)[:j])+list(the_pct)[j]/2),4))       
             ax = plt.subplot()
-            ax.text(0, 0.9, " 首:{:.1f}倍,{}个,占比{:.1%}; \n 尾:{:.1f}倍,{}个,占比{:.1%}".format(
+            ax.text(0, 0.9, " First:{:.1f}x,{}个,Pct{:.1%}; \n Last:{:.1f}x,{}个,Pct{:.1%}".format(
                 min_bs,min_badn,min_pct,max_bs,max_badn,max_pct),  fontdict={'size': '11', 'color': 'b'}) # 写平均风险值
-            ax.set_title('{} 样本：{}/{}({:.2%}), \n dt:{} \n IV:{:.2f}, KS:{:.2f}, PSI:{:.2f}, minIV:{:.2f}'.format(
+            ax.set_title('{} N:{}/{}({:.2%}), \n dt:{} \n IV:{:.2f}, KS:{:.2f}, PSI:{:.2f}, minIV:{:.2f}'.format(
                 x, df.shape[0], df[y].sum(), df[y].mean(),
                 vardf.dt_cut.min(), the_var_df.iv.values[0], the_var_df.ks.values[0],
                 max_psi[max_psi.index == x].psi.iloc[0], min_iv[min_iv.index == x].iv.iloc[0]),
@@ -500,7 +500,18 @@ def plt_multi_mosaic(df, inputx, y='fpd4', dt='event_date', dt_cut='month', miss
     tot_size = df.shape[0]
 
     out_vardf = pd.concat([vardf, cross_vardf])
-    out_bindf = pd.concat([bindf, cross_bindf])
+    
+    # 修改拼接逻辑,在不同dt_cut组之间添加空行
+    all_dfs = []
+    unique_dt_cuts = pd.concat([bindf, cross_bindf])['dt_cut'].unique()
+    for dt in unique_dt_cuts:
+        temp_df = pd.concat([bindf[bindf['dt_cut']==dt], cross_bindf[cross_bindf['dt_cut']==dt]])
+        # 添加一个空行DataFrame
+        empty_row = pd.DataFrame([[None]*len(temp_df.columns)], columns=temp_df.columns)
+        all_dfs.extend([temp_df, empty_row])
+    
+    # 拼接并去掉最后一个空行    
+    out_bindf = pd.concat(all_dfs, axis=0)[:-1]
 
     if if_plot:
         for x in inputx:
@@ -520,7 +531,7 @@ def plt_multi_mosaic(df, inputx, y='fpd4', dt='event_date', dt_cut='month', miss
             l = sorted(set(cross_vardf['dt_cut']))
 
             fig = plt.figure(figsize=(5 * len(l), 4))
-            fig.suptitle('{},{}, 总样本量：{}, 时间跨度:{}\n\n总IV:{:.2f}, 总KS:{:.2f}, 总空值率:{:.2%}, 总趋势:{}'.format(
+            fig.suptitle('{},{}, Total N:{}, Range:{}\n\nTotal IV:{:.2f}, Total KS:{:.2f}, Total Missing Rate:{:.2%}, Total Trend:{}'.format(
                 x, y, tot_size, dt_range, tot_iv, tot_ks, tot_missing, tot_mono),
                 x=0.1, y=1.2, ha='left', size=15, bbox=dict(facecolor='grey', alpha=0.1))
 
@@ -544,10 +555,10 @@ def plt_multi_mosaic(df, inputx, y='fpd4', dt='event_date', dt_cut='month', miss
                         x_label_pos.append(round((sum(list(the_pct)[:j]) + list(the_pct)[j] / 2), 4))
                 ax = plt.subplot(1, len(l), i + 1)
                 ax.text(0, 0.9,
-                        " 首:{:.1f}倍,{}个,占比{:.1%}; \n 尾:{:.1f}倍,{}个,占比{:.1%}".format(
+                        " First:{:.1f}x,{}个,Pct{:.1%}; \n Last:{:.1f}x,{}个,Pct{:.1%}".format(
                             min_bs, min_badn, min_pct, max_bs, max_badn, max_pct),
                         fontdict={'size': '11', 'color': 'b'})  # 写平均风险值
-                ax.set_title(' {}, 样本：{}/{}({:.2%}), \n IV:{:.2f}, KS:{:.2f}, PSI:{:.2f}'.format(
+                ax.set_title(' {}, N:{}/{}({:.2%}), \n IV:{:.2f}, KS:{:.2f}, PSI:{:.2f}'.format(
                     str(k), cross_len[k], cross_sum[k], cross_mean[k], the_cross_vardf['iv'][k],
                     the_cross_vardf['ks'][k], the_cross_vardf['psi'][k]), size=12)  # 表标题
 
@@ -643,7 +654,18 @@ def plt_multi_rsk_trend(df, inputx, y='fpd4', dt='event_date', dt_cut='month', m
     tot_size = df.shape[0]
     
     out_vardf = pd.concat([vardf, cross_vardf])
-    out_bindf = pd.concat([bindf, cross_bindf])
+    
+    # 修改拼接逻辑,在不同dt_cut组之间添加空行
+    all_dfs = []
+    unique_dt_cuts = pd.concat([bindf, cross_bindf])['dt_cut'].unique()
+    for dt in unique_dt_cuts:
+        temp_df = pd.concat([bindf[bindf['dt_cut']==dt], cross_bindf[cross_bindf['dt_cut']==dt]])
+        # 添加一个空行DataFrame
+        empty_row = pd.DataFrame([[None]*len(temp_df.columns)], columns=temp_df.columns)
+        all_dfs.extend([temp_df, empty_row])
+    
+    # 拼接并去掉最后一个空行    
+    out_bindf = pd.concat(all_dfs, axis=0)[:-1]
 
     if if_plot:
         if y is not None:
@@ -669,7 +691,7 @@ def plt_multi_rsk_trend(df, inputx, y='fpd4', dt='event_date', dt_cut='month', m
                 l = sorted(set(cross_vardf['dt_cut']))
         
                 fig = plt.figure(figsize=(5*len(l),4))
-                fig.suptitle('{},{}, 总样本量：{}, 时间跨度:{}\n\n总IV:{:.2f}, 总KS:{:.2f}, 总AUC:{:.2f}, 总空值率:{:.2%}, 总趋势:{}'.format(
+                fig.suptitle('{}, {}, Total N:{}, Range:{}\n\nIV:{:.2f}, KS:{:.2f}, AUC:{:.2f}, Missing Rate:{:.2%}, Trend:{}'.format(
                     x, y, tot_size, dt_range, tot_iv, tot_ks, tot_auc, tot_missing, tot_mono),
                     x=0.1, y=1.2, ha='left', size=15, bbox=dict(facecolor='grey', alpha=0.1))
             
@@ -693,10 +715,10 @@ def plt_multi_rsk_trend(df, inputx, y='fpd4', dt='event_date', dt_cut='month', m
                     ax1.set_xticklabels(xlabel, rotation=90, fontsize=10)
                     ax1.bar(xlabel, the_pct, alpha=0.2, color=color)
                     # sns.barplot(xlabel, the_pct,ax = ax1,alpha=0.2,color = color)
-                    ax1.text(0.01, 0.88, "首:{:.1f}倍,{}个,占{:.1%};  \n尾:{:.1f}倍,{} 个,占{:.1%}".format(
+                    ax1.text(0.01, 0.88, "First:{:.1f}x,N={},Pct{:.1%};  \nLast:{:.1f}x,N={},Pct{:.1%}".format(
                         min_bs, min_badn, min_pct, max_bs, max_badn, max_pct),
                              transform=ax1.transAxes, fontdict={'size': '11', 'color': 'b'}) # 写平均风险值
-                    ax1.set_title(' {}, 样本：{}/{}({:.2%}), \n IV:{:.2f}, KS:{:.2f}, AUC:{:.2f}, PSI:{:.2f}, miss:{:.0%}'.format(
+                    ax1.set_title('{}, N:{}/{}({:.2%}), \n IV:{:.2f}, KS:{:.2f}, AUC:{:.2f}, PSI:{:.2f}, Missing:{:.0%}'.format(
                         str(k), cross_len[k], cross_sum[k], cross_mean[k], the_cross_vardf['iv'][k],
                         the_cross_vardf['ks'][k], the_cross_vardf['auc'][k],
                         the_cross_vardf['psi'][k], the_cross_vardf['miss_rate'][k]),
@@ -764,7 +786,7 @@ def plt_multi_rsk_trend(df, inputx, y='fpd4', dt='event_date', dt_cut='month', m
                 l = sorted(set(cross_vardf['dt_cut']))
         
                 fig = plt.figure(figsize=(5*len(l), 4))
-                fig.suptitle('{}, 总样本量：{}, 时间跨度:{}\n\n总空值率:{:.2%}'.format(
+                fig.suptitle('{}, Total N:{}, Range:{}\n\nMissing Rate:{:.2%}'.format(
                     x, tot_size, dt_range, tot_missing),
                     x=0.1, y=1.2, ha='left', size=15, bbox=dict(facecolor='grey', alpha=0.1))
             
@@ -777,7 +799,7 @@ def plt_multi_rsk_trend(df, inputx, y='fpd4', dt='event_date', dt_cut='month', m
                     ax1 = plt.subplot(1, len(l), i+1)
                     ax1.set_xticklabels(xlabel, rotation=90, fontsize=10)
                     sns.barplot(xlabel, the_pct, ax=ax1, alpha=0.2, color='k')
-                    ax1.set_title(' {}, 样本：{}, \n PSI:{:.2f}, miss:{:.0%}'.format(
+                    ax1.set_title(' {}, N:{}, \n PSI:{:.2f}, Missing:{:.0%}'.format(
                         str(k), cross_len[k], the_cross_vardf['psi'][k], the_cross_vardf['miss_rate'][k]),
                         size=12) #表标题
                     ax1.set_ylim([0, c['pct'][c['pct']<0.5].max()*1])
@@ -954,69 +976,227 @@ def write_report(df, models_cut_dict, vars_cut_dict, y, dt_cut, digit, mode,
                                filename=os.path.join(output_path, label, model_name + '.png'))
     writer.save() 
 
-def plot_reg_bins_trend(df, group_col, base_group, y_pred_col, y_true_col, n_bins=20):
-    """
-    根据基准数据集划分等频分箱，并对每个数据集分别绘制直方图和曲线图。
+def format_bin_label(label_str, digits=2):
+    """处理箱体标签,保留指定位数的小数"""
+    import re
+    
+    # 保持原始箱体编号格式(00., 01.等)
+    prefix = label_str[:label_str.find('.')+1] if '.' in label_str[:4] else ''
+    
+    # 去掉前缀后再处理
+    rest = label_str[len(prefix):]
+    
+    # 处理无限值
+    rest = rest.replace('-inf', '-∞').replace('inf', '∞')
+    
+    # 查找并处理数字
+    def format_number(match):
+        num = float(match.group())
+        return f"{num:.{digits}f}"
+    
+    # 使用正则表达式查找数字并替换
+    pattern = r'-?\d+\.?\d*'
+    formatted = re.sub(pattern, format_number, rest)
+    
+    return prefix + formatted
 
+def plot_reg_bins_trend(df, group_col, base_group, y_pred_col, y_true_col, 
+                       n_bins=20, score_cut=None, method='quantile', 
+                       binning_col=None, binning_set=None, output_path=None):
+    """
+    根据基准数据集划分等频分箱或自定义分箱，并对每个数据集分别绘制直方图和曲线图。
+    
     参数:
     - df: pd.DataFrame, 包含所有数据的数据框
     - group_col: str, 用于区分不同数据集的列名
     - base_group: str, 指定基准划分数据集的名称
     - y_pred_col: str, 预测值列名
     - y_true_col: str, 真实值列名
-    - n_bins: int, 分箱数量，默认为 20
+    - n_bins: int, 分箱数量，默认为 20。当score_cut不为None时，此参数无效
+    - score_cut: list or None, 自定义分箱点。默认None使用等频分箱
+    - method: str, 分箱方法，'quantile'或'optimal'等
+    - binning_col: str, 用于标识训练集的列名
+    - binning_set: str, 训练集的标识值
     """
-    # Step 1: 获取基准数据集并计算分箱切点
-    base_dataset = df[df[group_col] == base_group]
-    base_dataset['bin'], bin_edges = pd.qcut(base_dataset[y_pred_col], q=n_bins, retbins=True, labels=False)
+    # Step 1: 使用get_x_group进行分箱
+    if score_cut is None:
+        score_cut = n_bins
     
-    # Step 2: 初始化绘图
+    if binning_col is None:
+        binning_col = group_col 
+    
+    if binning_set is None:
+        binning_set= base_group
+    
+    df['group'], score_cut = get_x_group(df, x=y_pred_col, y=y_true_col,
+                                score_cut=score_cut, method=method,
+                                binning_col=binning_col, binning_set=binning_set)
+    
+    # 获取基准组分布
+    base_dist = df[df[group_col] == base_group]['group'].value_counts(normalize=True).sort_index()
+    
+    # Step 2: 初始化绘图 - 增加图片高度
     unique_groups = np.sort(df[group_col].unique())
     n_datasets = len(unique_groups)
-    fig, axes = plt.subplots(1, n_datasets, figsize=(6 * n_datasets, 4), sharey=False)
+    fig = plt.figure(figsize=(6 * n_datasets, 5))
+    output_bin_stats = []
+    
+    # 初始化汇总指标DataFrame
+    summary_stats = []
 
-    # 如果只有一个数据集，axes 不是列表，转成列表以统一处理
-    if n_datasets == 1:
-        axes = [axes]
-
-    # Step 3: 对每个数据集应用分箱并绘图
+    # Step 3: 对每个数据集计算统计量并绘图
     for i, group in enumerate(unique_groups):
         dataset = df[df[group_col] == group]
-        mape = metrics.mean_absolute_percentage_error(dataset[y_true_col], dataset[y_pred_col])
-        r2 = metrics.r2_score(dataset[y_true_col], dataset[y_pred_col])
+        total_samples = len(dataset)
         
-        # 使用相同的切点进行分箱
-        dataset['bin'] = pd.cut(dataset[y_pred_col], bins=bin_edges, labels=False, include_lowest=True)
+        # 排除缺失值计算指标
+        valid_mask = dataset['group'].str[-4:] != '.nan'
+        valid_data = dataset[valid_mask]
+        
+        # 使用有效数据计算统计指标
+        mean_true = valid_data[y_true_col].mean()
+        mean_pred = valid_data[y_pred_col].mean()
+        mape = metrics.mean_absolute_percentage_error(valid_data[y_true_col], valid_data[y_pred_col])
+        r2 = metrics.r2_score(valid_data[y_true_col], valid_data[y_pred_col])
+        
+        # 计算PSI (包含缺失值)
+        curr_dist = dataset['group'].value_counts(normalize=True).sort_index()
+        psi = np.sum((curr_dist - base_dist) * np.log(curr_dist/base_dist))
+        
+        # 计算每个分箱的统计量
+        bin_stats = dataset.groupby('group').agg({
+            y_pred_col: ['count', 'mean'],
+            y_true_col: ['mean', 'std']
+        }).fillna(0)
+        
+        # 添加统计信息
+        bin_stats['ratio'] = bin_stats[y_pred_col]['count'] / total_samples
+        bin_stats['psi'] = psi
+        bin_stats['r2'] = r2
+        bin_stats['mape'] = mape
+        
+        # 计算lift (排除缺失值)
+        group_true_mean = valid_data[y_true_col].mean()
+        bin_stats['lift'] = bin_stats[y_true_col]['mean'] / group_true_mean
 
-        # 计算每个分箱的样本数量和 y_true 的平均值
-        bin_counts = dataset['bin'].value_counts().sort_index()  # 每个分箱的样本数量
-        bin_means = dataset.groupby('bin')[y_true_col].mean()  # 每个分箱中 y_true 的平均值
+        # 分离缺失值组和非缺失值组统计量
+        nan_mask = bin_stats.index.str[-4:] == '.nan'
+        normal_stats = bin_stats[~nan_mask]
+        nan_stats = bin_stats[nan_mask]
+        
+        bin_counts = normal_stats[y_pred_col]['count']
+        bin_true_means = normal_stats[y_true_col]['mean']
+        bin_lifts = normal_stats['lift']
+        first_lift = bin_lifts.iloc[0]
+        last_lift = bin_lifts.iloc[-1]
+        
+        # 绘图部分
+        ax1 = plt.subplot(1, n_datasets, i+1)
+        ax2 = ax1.twinx()
+        
+        # 绘制样本分布直方图
+        all_bin_counts = bin_stats[y_pred_col]['count']
+        formatted_labels = [format_bin_label(str(idx)) for idx in bin_stats.index]
+        x_positions = range(len(all_bin_counts))
+        
+        ax1.bar(x_positions, all_bin_counts/total_samples, 
+                alpha=0.3, color='skyblue')
+        ax1.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1, decimals=1))
+        ax1.tick_params(axis='y', labelcolor='blue', labelsize=10)  # 从8改为10
+        ax1.set_xticks(x_positions)
+        ax1.set_xticklabels(formatted_labels, rotation=90, fontsize=10)  # 从8改为10
+        ax1.set_ylabel('')
+        ax1.set_xlabel('')
 
-        # 绘图
-        ax1 = axes[i]
-        ax2 = ax1.twinx()  # 创建双 Y 轴
+        # 在图上添加首尾箱信息
+        ax1.text(0.01, 0.85,
+                f"First: {first_lift:.1f}x, N={bin_counts.iloc[0]}, Pct{bin_counts.iloc[0]/total_samples:.1%}\n"
+                f"Last: {last_lift:.2f}x, N={bin_counts.iloc[-1]}, Pct{bin_counts.iloc[-1]/total_samples:.1%}",
+                transform=ax1.transAxes,
+                fontsize=11,  # 从8改为11
+                color='blue')
 
-        # 绘制直方图（样本数量）
-        ax1.bar(bin_counts.index + 1, bin_counts.values, color='skyblue', alpha=0.7, label='Sample Count')
-        ax1.set_ylabel('Sample Count', fontsize=12, color='blue')
-        ax1.tick_params(axis='y', labelcolor='blue')
+        # 绘制真实值均值曲线
+        x_range = range(len(normal_stats))
+        ax2.plot(x_range, bin_true_means, color='red', marker='o', linewidth=1.5, markersize=4)
+        ax2.axhline(y=group_true_mean, color='gray', linestyle=':', alpha=0.5)
+        ax2.set_ylabel('')
+        ax2.tick_params(axis='y', labelcolor='red', labelsize=10)  # 从8改为10
+        
+        # 标注值改为红色
+        for x_pos, y_val in zip(x_range, bin_true_means):
+            ax2.annotate(f'{y_val:.2f}', 
+                        xy=(x_pos, y_val),
+                        xytext=(0, 5),
+                        textcoords='offset points',
+                        ha='center',
+                        fontsize=10,  # 从8改为10
+                        color='red')
+                        
+        # 如果存在缺失值，单独处理
+        if len(nan_stats) > 0:
+            nan_mean = nan_stats[y_true_col]['mean'].iloc[0]
+            x_pos = len(normal_stats)
+            ax2.plot([x_pos], [nan_mean], 'bo', color='blue', alpha=0.6, markersize=4)
+            ax2.annotate(f'{nan_mean:.2f}', 
+                        xy=(x_pos, nan_mean),
+                        xytext=(0, 5),
+                        textcoords='offset points',
+                        ha='center',
+                        fontsize=10,  # 从8改为10 
+                        color='blue')
+        
+        # 标题信息
+        miss_rate = 1 - valid_data.shape[0]/total_samples
+        title_text = (f'{group}, N={total_samples:,d}(Missing:{miss_rate:.1%})\n'
+                     f'Mean:{mean_true:.4f}, R2:{r2:.4f}, PSI:{psi:.4f}')
+        ax1.set_title(title_text, fontsize=12, pad=2)  # 从9改为12
 
-        # 绘制曲线（y_true 的平均值）
-        ax2.plot(bin_means.index + 1, bin_means.values, color='red', marker='o', label='y_true Mean', linewidth=2)
-        ax2.set_ylabel('y_true Mean', fontsize=12, color='red')
-        ax2.tick_params(axis='y', labelcolor='red')
+        bin_stats.columns = ["_".join(col).strip() if col[1] else col[0] for col in bin_stats.columns.values]
+        bin_stats[group_col] = group
+        # 添加一个空行
+        empty_row = pd.DataFrame([[None]*len(bin_stats.columns)], columns=bin_stats.columns)
+        output_bin_stats.append(bin_stats)
+        output_bin_stats.append(empty_row)
+        
+        # 收集每个group的宏观指标
+        group_summary = {
+            'group': group,
+            'samples': total_samples,
+            'missing_rate': miss_rate,
+            'mean_true': mean_true,
+            'mean_pred': mean_pred,
+            'r2': r2,
+            'mape': mape,
+            'psi': psi,
+            'first_lift': first_lift,
+            'last_lift': last_lift
+        }
+        summary_stats.append(group_summary)
 
-        # 设置标题
-        ax1.set_title(f'{group}: -r2:{r2:.4f}-mape:{mape:.4f}', fontsize=14)
-        ax1.set_xlabel('Bin Number', fontsize=12)
-        ax1.grid(alpha=0.3)
+    # 调整子图间距 
+    plt.tight_layout(h_pad=0.5, w_pad=0.5)
+    
+    if output_path is None:
+        plt.show()
+    else:
+        if os.path.exists(output_path):
+            pass
+        else:
+            os.makedirs(output_path)
+        fig.savefig('{}/{}.png'.format(output_path,
+                                        re.sub(r"[\/\\\:\*\?\"\<\>\|]", '', y_pred_col)),
+                    pad_inches=0.3, dpi=100, papertype='a4',bbox_inches='tight')
+        plt.close()
+    # 拼接所有数据框,去掉最后一个空行
+    output_bin_stats = pd.concat(output_bin_stats, axis=0).iloc[:-1]
+    
+    # 创建汇总指标DataFrame
+    out_vardf = pd.DataFrame(summary_stats)
+    
+    # 设置索引并对数值列四舍五入
+    out_vardf = out_vardf.set_index('group')
+    numeric_cols = ['missing_rate', 'mean_true', 'mean_pred', 'r2', 'mape', 'psi', 'first_lift', 'last_lift'] 
+    out_vardf[numeric_cols] = out_vardf[numeric_cols].round(4)
 
-        # 添加图例
-        ax1.legend(loc='upper left', fontsize=10)
-        ax2.legend(loc='upper right', fontsize=10)
-
-    # 调整布局，确保横向排列的图不重叠
-    plt.tight_layout()
-    plt.subplots_adjust(wspace=0.4)
-    plt.show()
-
+    return output_bin_stats, out_vardf, score_cut
