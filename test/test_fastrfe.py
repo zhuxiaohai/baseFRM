@@ -1,8 +1,10 @@
 import numpy as np
+import pandas as pd
 from scipy import stats
 from sklearn.datasets import load_breast_cancer, load_iris, fetch_california_housing, make_multilabel_classification
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, accuracy_score, roc_auc_score
+from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder
 from xgboost import XGBClassifier, XGBRegressor
 from shaphypetune._classes import _FastRFE
 from shaphypetune.gbdt_utils.xgboost_metrics import xgb_ks_score_negative, xgb_r2_score_negative
@@ -211,7 +213,108 @@ def test_xgb_with_categorical():
     })
     print('\n特征重要性:')
     print(feature_importance.sort_values('importance', ascending=False))
-    
+
+
+def test_xgb_with_native_categorical():
+    np.random.seed(42)
+    n_samples = 1000
+
+    # 数值型特征
+    age = np.random.normal(35, 10, n_samples)
+    income = np.random.normal(50000, 20000, n_samples)
+
+    # 类别型特征
+    education = np.random.choice(['高中', '本科', '硕士', '博士'], n_samples)
+
+    # 将特征组合在一起
+    X_numeric = np.column_stack([age, income])
+
+    # 使用OneHotEncoder处理类别型特征
+    enc = OneHotEncoder(sparse_output=False)
+    education_encoded = enc.fit_transform(education.reshape(-1, 1))
+
+    # 展示编码与原始类别的对应关系
+    print("\n类别编码映射关系:")
+    categories = enc.categories_[0]
+    for i, category in enumerate(categories):
+        print(f"{category}: {enc.transform([[category]])[0]}")
+
+    # 创建目标变量（示例：是否获得贷款）
+    # 修改计算方式以适应one-hot编码后的特征
+    y = (age * 0.1 + income * 0.00003 + 
+            np.sum(education_encoded * np.array([1, 2, 3, 4]), axis=1) + 
+            np.random.normal(0, 1, n_samples)) > np.median(
+        age * 0.1 + income * 0.00003 + np.sum(education_encoded * np.array([1, 2, 3, 4]), axis=1)
+    )
+    y = y.astype(int)
+
+    df = pd.DataFrame(X_numeric, columns=["age", "income"])
+    df["education"] = education
+    df["target"] = y
+    df["education"] = df["education"].astype("category")
+    features = ["age", "income", "education"]
+    cat_feats = ["education"]
+    feature_types = ["c" if fn in cat_feats else "q" for fn in features]
+
+    # 划分训练集和测试集
+    x_train, x_valid, y_train, y_valid = train_test_split(df[features], df["target"], test_size=0.2, random_state=42)
+
+    # Create an encoder based on training data.
+    enc = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=np.nan)
+    enc = enc.fit(x_train[cat_feats])
+    x_train[cat_feats] = enc.transform(x_train[cat_feats]).astype(int)
+    x_valid[cat_feats] = enc.transform(x_valid[cat_feats]).astype(int)
+
+    # 定义XGBoost模型
+    clf_xgb = XGBClassifier(
+        n_estimators=100,
+        verbosity=0,
+        early_stopping_rounds=10,
+        tree_method="hist", 
+        enable_categorical=True,
+        feature_types=feature_types,
+        eval_metric=xgb_ks_score_negative
+    )
+
+    param_dist = {
+        'max_depth': [2, 3, 4],
+        'subsample': [0.7],
+        'min_child_weight': [20, 30, 10],
+        'base_score': [0.5, 0.7, 0.6, 0.4],
+        'reg_lambda': [1, 5, 10, 15],
+        'learning_rate': [0.1, 0.08, 0.12],
+        'colsample_bytree': [0.5, 0.7, 0.9],
+        'reg_alpha': [1, 10],
+        'random_state': stats.rv_discrete(values=([i*8 for i in range(1000)], [1/1000]*1000))
+    }
+
+    model = _FastRFE(clf_xgb, min_features_to_select=3, param_grid=param_dist, n_iter=5, n_warmup_iter=1,
+                    sampling_seed=1, verbose=2, importance_type="shap_importances", train_importance=False)
+    model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)])
+
+    print('n_features', model.n_features_)
+    np.testing.assert_almost_equal([cal_ks(model.predict_proba(x_valid)[:, 1], y_valid)[0]],
+                                    [model.best_score_], decimal=5)
+    np.testing.assert_almost_equal([cal_ks(model.estimator_.predict_proba(x_valid.loc[:, model.support_])[:, 1], y_valid)[0]],
+                                    [model.best_score_], decimal=5)
+
+    print(model.best_params_)
+    afsxc = XGBClassifier(
+        n_estimators=100,
+        verbosity=0,
+        early_stopping_rounds=10,
+        tree_method="hist", 
+        enable_categorical=True,
+        feature_types=feature_types,
+        eval_metric=xgb_ks_score_negative,
+        verbose=True, 
+        **model.best_params_
+    )
+    afsxc.fit(x_train.loc[:, model.support_], y_train,
+            eval_set=[(x_valid.loc[:, model.support_], y_valid)],)
+    test_pred = afsxc.predict_proba(x_valid.loc[:, model.support_])[:, 1]
+    np.testing.assert_almost_equal([cal_ks(test_pred, y_valid)[0]],
+                                    [model.best_score_], decimal=5)
    
 
 def test_xgb_with_multilabel_clc(): 
