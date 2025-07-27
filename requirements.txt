@@ -1,8 +1,9 @@
 cython
 hyperopt==0.2.5
 lightgbm
-matplotlib==3.2.1
+matplotlib
 numpy
+openpyxl
 optuna
 optbinning
 pandas
@@ -10,7 +11,7 @@ pytest
 scikit-learn
 scipy
 shap
-seaborn==0.11.2
+seaborn
 statsmodels
 toad
 xgboost

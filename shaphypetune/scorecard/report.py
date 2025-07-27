@@ -12,7 +12,7 @@ from matplotlib.pyplot import style
 import pylab
 # pylab.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体
 pylab.rcParams['axes.unicode_minus'] = False  # 解决保存图像是负号'-'显示为方块的问题
-style.use('seaborn-white')
+# style.use('seaborn-white')
 # mpl.rcParams['font.family'] = 'SimHei'
 # mpl.rcParams['font.sans-serif'] = ['SimHei']
 mpl.rcParams['axes.unicode_minus'] = False
@@ -736,7 +736,9 @@ def plt_multi_rsk_trend(df, inputx, y='fpd4', dt='event_date', dt_cut='month', m
                     #     frsk.iloc[-1] = np.nan
                     ax2 = ax1.twinx()
                     ylim_max = c['mean'].max()
-                    sns.pointplot(xlabel, frsk, ax=ax2, alpha=0.2, color='red', scale=0.5)
+                    # sns.pointplot(xlabel, frsk, ax=ax2, alpha=0.2, color='red', scale=0.5)
+                    # 画线图
+                    ax2.plot(range(len(xlabel)), np.array(frsk), marker='o', alpha=0.2, color="red")
                     for a,b in zip([i for i in range(len(xlabel))], frsk):
                         ax2.annotate("{:.1%}".format(b), xy=(a,b), xytext=(-12, 5), textcoords='offset points', weight='heavy')
                     ax2.axhline(y=cross_mean[k], color='grey', label='avg_risk', linestyle='--', linewidth=1) # 平均风险线

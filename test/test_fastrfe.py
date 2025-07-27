@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
-from sklearn.datasets import load_breast_cancer, load_iris, fetch_california_housing, make_multilabel_classification
+from sklearn.datasets import load_digits, load_breast_cancer, load_iris, fetch_california_housing, make_multilabel_classification
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, accuracy_score, roc_auc_score
 from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder
@@ -347,3 +347,39 @@ def test_xgb_with_multilabel_clc():
     test_pred = afsxc.predict_proba(x_valid[:, model.support_])
     np.testing.assert_almost_equal([-xgb_auc_score_negative(y_valid, test_pred)],
                                 [model.best_score_], decimal=5)
+    
+
+def test_incremental_learning():
+    X, y = load_digits(n_class=2, return_X_y=True)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8, 
+                                                        shuffle=True, stratify=y,
+                                                        random_state=100)
+    
+    print("-+-" * 25)
+    params1 = {'tree_method': 'hist', "n_estimators": 3}
+    model1 = XGBClassifier(**params1)
+    model1.fit(X_train, y_train)
+    print(len(model1.get_booster().get_dump()))
+    for leaf in model1.get_booster().get_dump():
+        print(leaf)
+    
+    print("-+-" * 25)
+    params2 = {'tree_method': 'hist', "n_estimators": 3}
+    model2 = XGBClassifier(**params2)
+    model2.fit(X_test, y_test, xgb_model=model1.get_booster())
+    print(len(model2.get_booster().get_dump()))
+    for leaf in model2.get_booster().get_dump():
+        print(leaf)
+    
+    print("-+-" * 25)
+    params3 = {'tree_method': 'exact', "n_estimators": 3}
+    params3["updater"] = "refresh"
+    params3["process_type"] = "update"
+    params3["refresh_leaf"] = True
+    # 则3棵树结构不变，叶节点权重改变，最终结果一共3棵树
+    # 特别注意这里的num_boost_round <=原始模型的boost_nums 否则汇报错
+    model3 = XGBClassifier(**params3)
+    model3.fit(X_test, y_test, xgb_model=model1.get_booster())
+    print(len(model3.get_booster().get_dump()))
+    for leaf in model3.get_booster().get_dump():
+        print(leaf)

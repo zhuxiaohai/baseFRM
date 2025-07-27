@@ -562,4 +562,4 @@ def monitor(all_df, combiners, features, target, cur_dir,
         save_dir = os.path.join(cur_dir, col + '_stats.jpg')
         fig.savefig(save_dir, bbox_inches='tight')
         plt.close('all')
-    writer.save()
+    writer.close()
