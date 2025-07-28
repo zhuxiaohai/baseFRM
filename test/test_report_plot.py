@@ -5,8 +5,9 @@ from optbinning import BinningProcess
 from sklearn.datasets import load_breast_cancer, load_diabetes
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier, XGBRegressor
-from shaphypetune.scorecard.report import plt_multi_rsk_trend, plot_reg_bins_trend
+from shaphypetune.scorecard.report import plt_multi_rsk_trend, plot_reg_bins_trend, plot_reg_bins_trend_double_y
 from shaphypetune.scorecard import visualize, utils  
+import numpy as np
 
 
 def test_plt_multi_rsk_trend():
@@ -63,6 +64,37 @@ def test_plot_reg_bins_trend():
         y_true_col="y_true",
         n_bins=10
     )
+
+
+def test_plot_reg_bins_trend_double_y():
+    # 模拟数据
+    np.random.seed(42)
+    n_samples = 500
+    df = pd.DataFrame({
+        "feature1": np.random.normal(0, 1, n_samples),
+        "feature2": np.random.uniform(0, 10, n_samples),
+        "set": np.random.choice(["1train", "2test"], n_samples, p=[0.6, 0.4])
+    })
+    # 金额（收益），正相关于feature1
+    df["amount"] = 100 + 20 * df["feature1"] + np.random.normal(0, 10, n_samples)
+    # 花费，正相关于feature2
+    df["cost"] = 50 + 5 * df["feature2"] + np.random.normal(0, 5, n_samples)
+    # 预测值（可用作分箱依据）
+    df["y_pred"] = 0.5 * df["feature1"] + 0.2 * df["feature2"] + np.random.normal(0, 0.2, n_samples)
+
+    # 计算ROI
+    df["roi"] = df["amount"] / (df["cost"] + 1e-6)
+
+    # 分箱趋势图（双y轴：amount和cost）
+    _, _, _ = plot_reg_bins_trend_double_y(
+        df=df,
+        group_col="set",
+        base_group="1train",
+        y_pred_col="y_pred",
+        y_true_col=["amount", "cost"],
+        n_bins=8
+    )
+
 
 def test_monitor():
     X, y = load_breast_cancer(return_X_y=True)

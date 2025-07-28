@@ -591,7 +591,7 @@ def plt_multi_mosaic(df, inputx, y='fpd4', dt='event_date', dt_cut='month', miss
                             pad_inches=0.3, dpi=100, papertype='a4', bbox_inches='tight')
                 plt.close()
 
-    return out_vardf,out_bindf
+    return out_vardf, out_bindf
 
 
 #%%
@@ -1005,7 +1005,9 @@ def format_bin_label(label_str, digits=2):
 def plot_reg_bins_trend(df, group_col, base_group, y_pred_col, y_true_col, 
                        n_bins=20, score_cut=None, method='quantile', 
                        binning_col=None, binning_set=None, output_path=None,
-                       psi_base='base_group'):  # Add new parameter
+                       psi_base='base_group', if_plot=True):  # Add if_plot parameter
+    df = df.copy()
+
     # Step 1: 使用get_x_group进行分箱
     if score_cut is None:
         score_cut = n_bins
@@ -1027,7 +1029,8 @@ def plot_reg_bins_trend(df, group_col, base_group, y_pred_col, y_true_col,
     # Step 2: 初始化绘图 - 增加图片高度
     unique_groups = np.sort(df[group_col].unique())
     n_datasets = len(unique_groups)
-    fig = plt.figure(figsize=(6 * n_datasets, 5))
+    if if_plot:
+        fig = plt.figure(figsize=(6 * n_datasets, 5))
     output_bin_stats = []
     
     # 初始化汇总指标DataFrame
@@ -1084,69 +1087,72 @@ def plot_reg_bins_trend(df, group_col, base_group, y_pred_col, y_true_col,
         bin_lifts = normal_stats['lift']
         first_lift = bin_lifts.iloc[0]
         last_lift = bin_lifts.iloc[-1]
-        
-        # 绘图部分
-        ax1 = plt.subplot(1, n_datasets, i+1)
-        ax2 = ax1.twinx()
-        
-        # 绘制样本分布直方图
-        all_bin_counts = bin_stats[y_pred_col]['count']
-        formatted_labels = [format_bin_label(str(idx)) for idx in bin_stats.index]
-        x_positions = range(len(all_bin_counts))
-        
-        ax1.bar(x_positions, all_bin_counts/total_samples, 
-                alpha=0.3, color='skyblue')
-        ax1.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1, decimals=1))
-        ax1.tick_params(axis='y', labelcolor='blue', labelsize=10)  # 从8改为10
-        ax1.set_xticks(x_positions)
-        ax1.set_xticklabels(formatted_labels, rotation=90, fontsize=10)  # 从8改为10
-        ax1.set_ylabel('')
-        ax1.set_xlabel('')
 
-        # 在图上添加首尾箱信息
-        ax1.text(0.01, 0.85,
-                f"First: {first_lift:.1f}x, N={bin_counts.iloc[0]}, Pct{bin_counts.iloc[0]/total_samples:.1%}\n"
-                f"Last: {last_lift:.2f}x, N={bin_counts.iloc[-1]}, Pct{bin_counts.iloc[-1]/total_samples:.1%}",
-                transform=ax1.transAxes,
-                fontsize=11,  # 从8改为11
-                color='blue')
-
-        # 绘制真实值均值曲线
-        x_range = range(len(normal_stats))
-        # ax2.plot(x_range, bin_true_means, color='red', marker='o', linewidth=1.5, markersize=4)
-        ax2.plot(x_range, bin_true_means.to_numpy().ravel() if hasattr(bin_true_means, "to_numpy") else bin_true_means, color='red', marker='o', linewidth=1.5, markersize=4)
-        ax2.axhline(y=group_true_mean, color='gray', linestyle=':', alpha=0.5)
-        ax2.set_ylabel('')
-        ax2.tick_params(axis='y', labelcolor='red', labelsize=10)  # 从8改为10
-        
-        # 标注值改为红色
-        for x_pos, y_val in zip(x_range, bin_true_means):
-            ax2.annotate(f'{y_val:.2f}', 
-                        xy=(x_pos, y_val),
-                        xytext=(0, 5),
-                        textcoords='offset points',
-                        ha='center',
-                        fontsize=10,  # 从8改为10
-                        color='red')
-                        
-        # 如果存在缺失值，单独处理
-        if len(nan_stats) > 0:
-            nan_mean = nan_stats[y_true_col]['mean'].iloc[0]
-            x_pos = len(normal_stats)
-            ax2.plot([x_pos], [nan_mean], 'bo', color='blue', alpha=0.6, markersize=4)
-            ax2.annotate(f'{nan_mean:.2f}', 
-                        xy=(x_pos, nan_mean),
-                        xytext=(0, 5),
-                        textcoords='offset points',
-                        ha='center',
-                        fontsize=10,  # 从8改为10 
-                        color='blue')
-        
-        # 标题信息
         miss_rate = 1 - valid_data.shape[0]/total_samples
-        title_text = (f'{group}, N={total_samples:,d}(Missing:{miss_rate:.1%})\n'
-                     f'Mean:{mean_true:.4f}, R2:{r2:.4f}, PSI:{psi:.4f}')
-        ax1.set_title(title_text, fontsize=12, pad=2)  # 从9改为12
+        
+        # 绘图部分 - only if if_plot is True
+        if if_plot:
+            ax1 = plt.subplot(1, n_datasets, i+1)
+            ax2 = ax1.twinx()
+            
+            # 绘制样本分布直方图
+            all_bin_counts = bin_stats[y_pred_col]['count']
+            formatted_labels = [format_bin_label(str(idx)) for idx in bin_stats.index]
+            x_positions = range(len(all_bin_counts))
+            
+            ax1.bar(x_positions, all_bin_counts/total_samples, 
+                    alpha=0.3, color='skyblue')
+            ax1.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1, decimals=1))
+            ax1.tick_params(axis='y', labelcolor='blue', labelsize=10)  # 从8改为10
+            ax1.set_xticks(x_positions)
+            ax1.set_xticklabels(formatted_labels, rotation=90, fontsize=10)  # 从8改为10
+            ax1.set_ylabel('')
+            ax1.set_xlabel('')
+
+            # 在图上添加首尾箱信息
+            ax1.text(0.01, 0.85,
+                    f"First: {first_lift:.1f}x, N={bin_counts.iloc[0]}, Pct{bin_counts.iloc[0]/total_samples:.1%}\n"
+                    f"Last: {last_lift:.2f}x, N={bin_counts.iloc[-1]}, Pct{bin_counts.iloc[-1]/total_samples:.1%}",
+                    transform=ax1.transAxes,
+                    fontsize=11,  # 从8改为11
+                    color='blue')
+
+            # 绘制真实值均值曲线
+            x_range = range(len(normal_stats))
+            # ax2.plot(x_range, bin_true_means, color='red', marker='o', linewidth=1.5, markersize=4)
+            ax2.plot(x_range, bin_true_means.to_numpy().ravel() if hasattr(bin_true_means, "to_numpy") else bin_true_means, color='red', marker='o', linewidth=1.5, markersize=4)
+            ax2.axhline(y=group_true_mean, color='gray', linestyle=':', alpha=0.5)
+            ax2.set_ylabel('')
+            ax2.tick_params(axis='y', labelcolor='red', labelsize=10)  # 从8改为10
+            
+            # 标注值改为红色
+            for x_pos, y_val in zip(x_range, bin_true_means):
+                ax2.annotate(f'{y_val:.2f}', 
+                            xy=(x_pos, y_val),
+                            xytext=(0, 5),
+                            textcoords='offset points',
+                            ha='center',
+                            fontsize=10,  # 从8改为10
+                            color='red')
+                            
+            # 如果存在缺失值，单独处理
+            if len(nan_stats) > 0:
+                nan_mean = nan_stats[y_true_col]['mean'].iloc[0]
+                x_pos = len(normal_stats)
+                ax2.plot([x_pos], [nan_mean], 'bo', color='blue', alpha=0.6, markersize=4)
+                ax2.annotate(f'{nan_mean:.2f}', 
+                            xy=(x_pos, nan_mean),
+                            xytext=(0, 5),
+                            textcoords='offset points',
+                            ha='center',
+                            fontsize=10,  # 从8改为10 
+                            color='blue')
+        
+            # 标题信息
+            # miss_rate = 1 - valid_data.shape[0]/total_samples
+            title_text = (f'{group}, N={total_samples:,d}(Missing:{miss_rate:.1%})\n'
+                         f'Mean:{mean_true:.4f}, R2:{r2:.4f}, PSI:{psi:.4f}')
+            ax1.set_title(title_text, fontsize=12, pad=2)  # 从9改为12
 
         bin_stats.columns = ["_".join(col).strip() if col[1] else col[0] for col in bin_stats.columns.values]
         bin_stats[group_col] = group
@@ -1170,20 +1176,22 @@ def plot_reg_bins_trend(df, group_col, base_group, y_pred_col, y_true_col,
         }
         summary_stats.append(group_summary)
 
-    # 调整子图间距 
-    plt.tight_layout(h_pad=0.5, w_pad=0.5)
-    
-    if output_path is None:
-        plt.show()
-    else:
-        if os.path.exists(output_path):
-            pass
+    # 调整子图间距 - only if if_plot is True
+    if if_plot:
+        plt.tight_layout(h_pad=0.5, w_pad=0.5)
+        
+        if output_path is None:
+            plt.show()
         else:
-            os.makedirs(output_path)
-        fig.savefig('{}/{}.png'.format(output_path,
-                                        re.sub(r"[\/\\\:\*\?\"\<\>\|]", '', y_pred_col)),
-                    pad_inches=0.3, dpi=100, papertype='a4',bbox_inches='tight')
-        plt.close()
+            if os.path.exists(output_path):
+                pass
+            else:
+                os.makedirs(output_path)
+            fig.savefig('{}/{}.png'.format(output_path,
+                                            re.sub(r"[\/\\\:\*\?\"\<\>\|]", '', y_pred_col)),
+                        pad_inches=0.3, dpi=100, papertype='a4',bbox_inches='tight')
+            plt.close()
+            
     # 拼接所有数据框,去掉最后一个空行
     output_bin_stats = pd.concat(output_bin_stats, axis=0).iloc[:-1]
     
@@ -1193,6 +1201,214 @@ def plot_reg_bins_trend(df, group_col, base_group, y_pred_col, y_true_col,
     # 设置索引并对数值列四舍五入
     out_vardf = out_vardf.set_index('group')
     numeric_cols = ['missing_rate', 'mean_true', 'mean_pred', 'r2', 'mape', 'psi', 'first_lift', 'last_lift'] 
+    out_vardf[numeric_cols] = out_vardf[numeric_cols].round(4)
+
+    return output_bin_stats, out_vardf, score_cut
+
+
+def plot_reg_bins_trend_double_y(df, group_col, base_group, y_pred_col, y_true_col, 
+                                 n_bins=20, score_cut=None, method='quantile', 
+                                 binning_col=None, binning_set=None, output_path=None,
+                                 psi_base='base_group', if_plot=True):  # Add if_plot parameter
+    df = df.copy()
+
+    # Step 1: 使用get_x_group进行分箱
+    if score_cut is None:
+        score_cut = n_bins
+    
+    if binning_col is None:
+        binning_col = group_col 
+    
+    if binning_set is None:
+        binning_set= base_group
+    
+    df['group'], score_cut = get_x_group(df, x=y_pred_col, y=y_true_col[0],
+                                         score_cut=score_cut, method=method,
+                                         binning_col=binning_col, binning_set=binning_set)
+    
+    # 获取基准组分布
+    base_dist = df[df[group_col] == base_group]['group'].value_counts(normalize=True).sort_index()
+    last_dist = base_dist  # Initialize last_dist for rolling PSI calculation
+
+    # Step 2: 初始化绘图 - 增加图片高度
+    unique_groups = np.sort(df[group_col].unique())
+    n_datasets = len(unique_groups)
+    if if_plot:
+        fig = plt.figure(figsize=(6 * n_datasets, 5))
+    output_bin_stats = []
+    
+    # 初始化汇总指标DataFrame
+    summary_stats = []
+
+    # Step 3: 对每个数据集计算统计量并绘图
+    for i, group in enumerate(unique_groups):
+        dataset = df[df[group_col] == group]
+        total_samples = len(dataset)
+        
+        # 排除缺失值计算指标
+        valid_mask = dataset['group'].str[-4:] != '.nan'
+        valid_data = dataset[valid_mask]
+        
+        # 使用有效数据计算统计指标
+        mean_true = valid_data[y_true_col[0]].sum() / valid_data[y_true_col[1]].sum()
+        mean_pred = valid_data[y_pred_col].mean()
+        # mape = metrics.mean_absolute_percentage_error(valid_data[y_true_col], valid_data[y_pred_col])
+        # r2 = metrics.r2_score(valid_data[y_true_col], valid_data[y_pred_col])
+        
+        # 计算PSI (包含缺失值)
+        curr_dist = dataset['group'].value_counts(normalize=True).sort_index()
+        if psi_base == 'base_group':
+            # Calculate PSI against base group
+            psi = np.sum((curr_dist - base_dist) * np.log(curr_dist/base_dist))
+        else:
+            # Calculate PSI against previous group
+            psi = np.sum((curr_dist - last_dist) * np.log(curr_dist/last_dist))
+            last_dist = curr_dist  # Update last_dist for next iteration
+        
+        # 计算每个分箱的统计量
+        bin_stats = dataset.groupby('group').agg({
+            y_pred_col: ['count', 'mean'],
+            y_true_col[0]: ['sum'],
+            y_true_col[1]: ['sum']
+        }).fillna(0)
+        
+        # 添加统计信息
+        bin_stats['ratio'] = bin_stats[y_pred_col]['count'] / total_samples
+        bin_stats['psi'] = psi
+        # bin_stats['r2'] = r2
+        # bin_stats['mape'] = mape
+        
+        # 计算lift (排除缺失值)
+        group_true_mean = valid_data[y_true_col[0]].sum() / valid_data[y_true_col[1]].sum()
+        bin_stats['lift'] = (bin_stats[y_true_col[0]]['sum'] / bin_stats[y_true_col[1]]['sum']) / group_true_mean
+
+        # 分离缺失值组和非缺失值组统计量
+        nan_mask = bin_stats.index.str[-4:] == '.nan'
+        normal_stats = bin_stats[~nan_mask]
+        nan_stats = bin_stats[nan_mask]
+        
+        bin_counts = normal_stats[y_pred_col]['count']
+        bin_true_means = normal_stats[y_true_col[0]]['sum'] / normal_stats[y_true_col[1]]['sum']
+        bin_lifts = normal_stats['lift']
+        first_lift = bin_lifts.iloc[0]
+        last_lift = bin_lifts.iloc[-1]
+
+        miss_rate = 1 - valid_data.shape[0]/total_samples
+        
+        # 绘图部分 - only if if_plot is True
+        if if_plot:
+            ax1 = plt.subplot(1, n_datasets, i+1)
+            ax2 = ax1.twinx()
+            
+            # 绘制样本分布直方图
+            all_bin_counts = bin_stats[y_pred_col]['count']
+            formatted_labels = [format_bin_label(str(idx)) for idx in bin_stats.index]
+            x_positions = range(len(all_bin_counts))
+            
+            ax1.bar(x_positions, all_bin_counts/total_samples, 
+                    alpha=0.3, color='skyblue')
+            ax1.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1, decimals=1))
+            ax1.tick_params(axis='y', labelcolor='blue', labelsize=10)  # 从8改为10
+            ax1.set_xticks(x_positions)
+            ax1.set_xticklabels(formatted_labels, rotation=90, fontsize=10)  # 从8改为10
+            ax1.set_ylabel('')
+            ax1.set_xlabel('')
+
+            # 在图上添加首尾箱信息
+            ax1.text(0.01, 0.85,
+                    f"First: {first_lift:.1f}x, N={bin_counts.iloc[0]}, Pct{bin_counts.iloc[0]/total_samples:.1%}\n"
+                    f"Last: {last_lift:.2f}x, N={bin_counts.iloc[-1]}, Pct{bin_counts.iloc[-1]/total_samples:.1%}",
+                    transform=ax1.transAxes,
+                    fontsize=11,  # 从8改为11
+                    color='blue')
+
+            # 绘制真实值均值曲线
+            x_range = range(len(normal_stats))
+            # ax2.plot(x_range, bin_true_means, color='red', marker='o', linewidth=1.5, markersize=4)
+            ax2.plot(x_range, bin_true_means.to_numpy().ravel() if hasattr(bin_true_means, "to_numpy") else bin_true_means, color='red', marker='o', linewidth=1.5, markersize=4)
+            ax2.axhline(y=group_true_mean, color='gray', linestyle=':', alpha=0.5)
+            ax2.set_ylabel('')
+            ax2.tick_params(axis='y', labelcolor='red', labelsize=10)  # 从8改为10
+            
+            # 标注值改为红色
+            for x_pos, y_val in zip(x_range, bin_true_means):
+                ax2.annotate(f'{y_val:.2f}', 
+                            xy=(x_pos, y_val),
+                            xytext=(0, 5),
+                            textcoords='offset points',
+                            ha='center',
+                            fontsize=10,  # 从8改为10
+                            color='red')
+                            
+            # 如果存在缺失值，单独处理
+            if len(nan_stats) > 0:
+                nan_mean = nan_stats[y_true_col[0]]['sum'].iloc[0] / nan_stats[y_true_col[1]]['sum'].iloc[0]
+                x_pos = len(normal_stats)
+                ax2.plot([x_pos], [nan_mean], 'bo', color='blue', alpha=0.6, markersize=4)
+                ax2.annotate(f'{nan_mean:.2f}', 
+                            xy=(x_pos, nan_mean),
+                            xytext=(0, 5),
+                            textcoords='offset points',
+                            ha='center',
+                            fontsize=10,  # 从8改为10 
+                            color='blue')
+        
+            # 标题信息
+            # miss_rate = 1 - valid_data.shape[0]/total_samples
+            # title_text = (f'{group}, N={total_samples:,d}(Missing:{miss_rate:.1%})\n'
+            #              f'Mean:{mean_true:.4f}, R2:{r2:.4f}, PSI:{psi:.4f}')
+            title_text = (f'{group}, N={total_samples:,d}(Missing:{miss_rate:.1%})\n'
+                f'Mean:{mean_true:.4f}, PSI:{psi:.4f}')
+            ax1.set_title(title_text, fontsize=12, pad=2)  # 从9改为12
+
+        bin_stats.columns = ["_".join(col).strip() if col[1] else col[0] for col in bin_stats.columns.values]
+        bin_stats[group_col] = group
+        # 添加一个空行
+        empty_row = pd.DataFrame([[None]*len(bin_stats.columns)], columns=bin_stats.columns)
+        output_bin_stats.append(bin_stats)
+        output_bin_stats.append(empty_row)
+        
+        # 收集每个group的宏观指标
+        group_summary = {
+            'group': group,
+            'samples': total_samples,
+            'missing_rate': miss_rate,
+            'mean_true': mean_true,
+            'mean_pred': mean_pred,
+            # 'r2': r2,
+            # 'mape': mape,
+            'psi': psi,
+            'first_lift': first_lift,
+            'last_lift': last_lift
+        }
+        summary_stats.append(group_summary)
+
+    # 调整子图间距 - only if if_plot is True
+    if if_plot:
+        plt.tight_layout(h_pad=0.5, w_pad=0.5)
+        
+        if output_path is None:
+            plt.show()
+        else:
+            if os.path.exists(output_path):
+                pass
+            else:
+                os.makedirs(output_path)
+            fig.savefig('{}/{}.png'.format(output_path,
+                                            re.sub(r"[\/\\\:\*\?\"\<\>\|]", '', y_pred_col)),
+                        pad_inches=0.3, dpi=100, papertype='a4',bbox_inches='tight')
+            plt.close()
+            
+    # 拼接所有数据框,去掉最后一个空行
+    output_bin_stats = pd.concat(output_bin_stats, axis=0).iloc[:-1]
+    
+    # 创建汇总指标DataFrame
+    out_vardf = pd.DataFrame(summary_stats)
+    
+    # 设置索引并对数值列四舍五入
+    out_vardf = out_vardf.set_index('group')
+    # numeric_cols = ['missing_rate', 'mean_true', 'mean_pred', 'r2', 'mape', 'psi', 'first_lift', 'last_lift'] 
+    numeric_cols = ['missing_rate', 'mean_true', 'mean_pred', 'psi', 'first_lift', 'last_lift'] 
     out_vardf[numeric_cols] = out_vardf[numeric_cols].round(4)
 
     return output_bin_stats, out_vardf, score_cut
