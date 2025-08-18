@@ -7,12 +7,13 @@ import os
 from sklearn import metrics
 from scipy.stats import ks_2samp
 from matplotlib.pyplot import style
-style.use('seaborn-white')
+# style.use('seaborn-white')
 import pylab
-pylab.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体
+# pylab.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体
 pylab.rcParams['axes.unicode_minus'] = False  # 解决保存图像是负号'-'显示为方块的问题
 import warnings
 warnings.filterwarnings('ignore')
+
 
 def risk_trend_plot(dt_test, result_test, col_y, n, trend_title='risk_trend', plot_save_path='-', bins='freq',if_plot=True):
     '''模型分趋势图画图插件
